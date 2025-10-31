@@ -99,7 +99,7 @@
 #### 0.4: Dependency Setup
 **Pre-Approved Dependencies**:
 - [ ] Add MLX Swift via SPM: `https://github.com/ml-explore/mlx-swift`
-- [ ] Add WhisperKit via SPM: `https://github.com/argmaxinc/WhisperKit`
+- [ ] Add mlx-swift-examples via SPM: `https://github.com/ml-explore/mlx-swift-examples` (provides MLXLLM, MLXLMCommon, MLXEmbedders)
 - [ ] Add swift-snapshot-testing via SPM: `https://github.com/pointfreeco/swift-snapshot-testing`
 - [ ] Verify project builds after adding all deps
 - [ ] Total app size increase: <100MB (before models)
@@ -157,7 +157,7 @@
 
 #### 1.2: Vector Index
 - [ ] `Data/Storage/VectorIndex.swift`:
-  - Store embeddings (BLOB, 384-dim float32)
+  - Store embeddings (BLOB, 462-dim float32)
   - Cosine similarity (Accelerate.framework SIMD)
   - Recency boost: `0.7 × similarity + 0.3 × recency_score`
   - Benchmark: <50ms for top-5 with 10k entries
@@ -228,8 +228,8 @@
 
 ### Goals
 - Get Qwen3-Instruct-2507 4B running on-device
-- Implement dual embedding pipeline
-- Set up WhisperKit for STT
+- Implement Qwen3-Embedding pipeline (462-dim, <200ms)
+- Set up Apple Speech Framework for STT
 - Validate performance budgets
 
 ### Deliverables
@@ -243,9 +243,8 @@
   Format: MLX (ready for MLX Swift)
   Quantization: 4-bit (INT4)
   ```
-- [ ] Download embedding models:
-  - MiniLM-L6-v2 (CoreML, ~80MB) for fast embeddings
-  - Qwen3 embeddings (MLX format, ~1.2GB) for quality embeddings
+- [ ] Download embedding model:
+  - Qwen3-Embedding-0.6B (MLX 4-bit, ~320MB) for 462-dim embeddings
 - [ ] Generate SHA-256 checksums for all models
 - [ ] Store in `Resources/Models/` with `.sha256` files
 - [ ] Create identity LoRA adapter (passthrough for testing)
@@ -262,27 +261,45 @@
 - [ ] Unit tests: generate text, verify streaming
 - [ ] Performance tests: <2s for 100 tokens
 
-#### 2.3: Embedding Service (Dual-Mode)
-- [ ] Add to `Services/ModelRuntime.swift`:
-  - Fast mode: MiniLM (<100ms target)
-  - Quality mode: Qwen3 embeddings (background queue, <500ms)
-  - Output: 384-dim float array
-- [ ] Unit tests: dimension verification
-- [ ] Performance tests: MiniLM <100ms, Qwen3 <500ms
+#### 2.3: Semantic Chunking Service
+- [ ] Create `Services/ChunkingService.swift`:
+  - Detect emotion boundaries in journal entries
+  - Max 400 tokens per chunk (hard limit)
+  - Split at emotion label changes (e.g., anxious → neutral)
+  - Generate SemanticChunk models with metadata
+- [ ] Create `Data/Models/SemanticChunk.swift`:
+  - id, parentEntryId, chunkIndex, text
+  - Temporal metadata: startTime, endTime
+  - Emotion metadata: dominantEmotion, confidence, valence, arousal
+  - Prosody metadata: avgPitch, avgEnergy, avgSpeakingRate
+- [ ] Unit tests: boundary detection, emotion coherence
 
-#### 2.4: WhisperKit Integration
+#### 2.4: Embedding Service (Single Model with Chunking)
+- [ ] Update `Agents/EmbeddingAgent.swift`:
+  - Accept entry text, call ChunkingService if > 400 tokens
+  - Generate Qwen3-Embedding-0.6B (462-dim) per chunk
+  - Store chunks with parent_entry_id reference
+- [ ] Update database schema (migration 002):
+  - Add chunk metadata to embeddings table
+  - parent_entry_id, chunk_index, text, timestamps
+  - Emotion + prosody aggregates per chunk
+- [ ] Unit tests: dimension verification (462-dim), chunking integration
+- [ ] Performance tests: <200ms latency per chunk
+
+#### 2.5: Apple Speech Framework Integration
 - [ ] `Services/STTService.swift`:
-  - Initialize Whisper model (use smallest model for speed)
-  - Transcribe with streaming if supported (check docs)
+  - Initialize SFSpeechRecognizer (native iOS speech recognition)
+  - Request speech recognition authorization
+  - Implement streaming transcription with SFSpeechAudioBufferRecognitionRequest
   - Handle timeout (2.5s)
   - Fallback to text input on failure
 - [ ] Test with 10 audio fixtures
 - [ ] Verify accuracy >90% on clean audio
-- [ ] Performance: <500ms for 10s audio
+- [ ] Performance: <300ms for 10s audio (faster than WhisperKit)
 
-#### 2.5: Model Pre-warming
+#### 2.6: Model Pre-warming
 - [ ] Add to `MindLoopApp.swift`:
-  - Load MiniLM immediately (~100ms)
+  - Load Qwen3-Embedding immediately (~200ms)
   - Pre-warm Qwen3 in background Task (target <3s)
   - Show loading indicator if models not ready
   - Total launch time target: <5s on iPhone 15 Pro
@@ -291,12 +308,12 @@
 **Model Performance**:
 - ✅ Qwen3 generates coherent text (100 tokens in <2s on iPhone 15 Pro)
 - ✅ Streaming works (tokens arrive progressively)
-- ✅ MiniLM embeddings: <100ms per text
-- ✅ WhisperKit transcribes fixtures with >90% accuracy
+- ✅ Qwen3 embeddings: <200ms per text
+- ✅ Apple Speech Framework transcribes fixtures with >90% accuracy
 - ✅ All models load within 3s on launch
 
 **Memory Budget**:
-- ✅ MiniLM: ≤100MB resident
+- ✅ Qwen3-Embedding: ≤320MB resident
 - ✅ Qwen3 base: ≤2.7GB resident
 - ✅ LoRA adapter: ≤150MB additional
 - ✅ **Total: ≤3.0GB** (buffer for app overhead)
@@ -527,7 +544,7 @@
 
 ### Goals
 - Audio recording with waveform visualization
-- STT integration (WhisperKit)
+- STT integration (Apple Speech Framework)
 - **OpenSMILE prosody extraction** (CRITICAL for MVP)
 - Hybrid emotion detection
 
@@ -543,9 +560,10 @@
 
 #### 5.2: STT Integration
 - [ ] Wire STTService into Orchestrator
-- [ ] Check if WhisperKit supports streaming:
-  - **If YES**: Stream partial transcripts every 500ms
-  - **If NO**: Show spinner + "Transcribing...", display final only
+- [ ] Apple Speech Framework streaming:
+  - Stream partial transcripts in real-time (SFSpeechRecognitionResult provides partial results)
+  - Update UI with partial transcripts every 500ms
+  - Finalize when user stops speaking
 - [ ] Handle timeout (2.5s) → fallback to text input
 - [ ] Delete temp audio after successful transcription
 
@@ -631,7 +649,7 @@
 - ✅ Audio files deleted after transcription (verify with breakpoint)
 
 **Performance**:
-- ✅ STT latency <500ms for 10s audio
+- ✅ STT latency <300ms for 10s audio (Apple Speech Framework is faster)
 - ✅ OpenSMILE extraction <200ms
 - ✅ End-to-end audio latency <3s (record 10s → response)
 
@@ -756,7 +774,7 @@
   - Optimize embedding generation (reuse buffers)
   - Ensure no main thread blocking
 - [ ] Verify latency budgets on iPhone 15 Pro:
-  - STT <500ms ✅
+  - STT <300ms ✅ (Apple Speech Framework)
   - Fast embedding <100ms ✅
   - Coach response <2s ✅
   - Vector search <50ms ✅

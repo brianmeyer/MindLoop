@@ -66,7 +66,7 @@ When working on MindLoop, follow these rules strictly:
 
 ### Ask Before Adding Dependencies
 - **Do not add 3rd-party packages; prefer stdlib/Apple frameworks.**
-- If unavoidable (e.g., MLX Swift, WhisperKit, OpenSMILE), propose first with rationale.
+- If unavoidable (e.g., MLX Swift, MLXLLM, OpenSMILE), propose first with rationale.
 - No large UI kits, networking libraries, or analytics SDKs.
 
 ### Write Tests With Code
@@ -98,7 +98,7 @@ When working on MindLoop, follow these rules strictly:
 
 2. Fast Context Retrieval (real-time during audio)
    └─ RetrievalAgent.quickSearch(partialTranscript) → top-3 recent memories
-      // Uses lightweight embedding (MiniLM) for <100ms latency
+      // Uses Qwen3-Embedding-0.6B (462-dim) for <200ms latency
 
 3. Journal Agent.normalize(entry, EmotionSignal)
    └─ Outputs: JournalEntry (structured JSON)
@@ -106,40 +106,48 @@ When working on MindLoop, follow these rules strictly:
 4. Storage.save(normalizedEntry)
    └─ Persists to SQLite with metadata
 
-5. EmbeddingAgent.enqueueBackground(normalizedEntry)
-   └─ Runs Qwen3 embeddings in background queue (higher quality)
+5. ChunkingService.semanticChunk(normalizedEntry)
+   └─ Splits long entries at emotion/prosody boundaries
+   └─ Max 400 tokens per chunk, splits on emotion changes
+   └─ Returns: [SemanticChunk] with emotion + prosody metadata
 
-6. LearningLoopAgent.updateProfile(entry, feedback)
+6. EmbeddingAgent.generateEmbedding(chunks)
+   └─ Runs Qwen3-Embedding-0.6B (462-dim, <200ms) per chunk
+   └─ Stores chunk embeddings with parent_entry_id reference
+
+7. LearningLoopAgent.updateProfile(entry, feedback)
    └─ Adjusts PersonalizationProfile based on user feedback/edits
 
-7. RetrievalAgent.topK(entry, context)
+8. RetrievalAgent.topK(entry, context)
+   └─ Searches chunks (not entries), aggregates by parent_entry_id
    └─ Returns: top-5 relevant memories + 1 CBT card
+   └─ Each memory includes most relevant chunk for highlighting
 
-8. CoachAgent.streamResponse(entry, EmotionSignal, context, PersonalizationProfile)
+9. CoachAgent.streamResponse(entry, EmotionSignal, context, PersonalizationProfile)
    └─ Generates grounded, CBT-structured response (token-by-token streaming)
 
-9. SafetyAgent.gate(candidateResponse)
+10. SafetyAgent.gate(candidateResponse)
    ├─ If BLOCK → return templated de-escalation + crisis resources
    └─ If ALLOW → proceed
 
-10. Output Rendering
+11. Output Rendering
     ├─ If voice_enabled → TTSService.speak(response)
     └─ Render UI with response, context cards, and action buttons
 
-11. Error Handling
+12. Error Handling
     ├─ STT timeout (2.5s) → fall back to text input with friendly prompt
     ├─ Model timeout (3.0s) → show "thinking...", retry 1×, then fallback response
     ├─ Vector search failure → fall back to BM25 immediately
     ├─ Emotion pipeline failure → proceed with EmotionSignal.confidence = 0.0
     └─ Safety block → log anonymized event (type + timestamp only)
 
-12. Audio Cleanup
+13. Audio Cleanup
     └─ Delete temp audio immediately after successful STT (or keep until session end if "Replay" enabled)
 ```
 
 ### Background Processes
 
-- **Embedding Pipeline**: Full Qwen3 embeddings run after save (non-blocking)
+- **Semantic Chunking + Embedding Pipeline**: Chunk entry → embed chunks → store (non-blocking, runs after save)
 - **Trends Computation**: Weekly aggregations (no LLM, pure stats)
 - **LoRA Adapter Updates**: Hot-swappable via app settings (advanced users)
 - **Personalization Updates**: Async profile adjustments from user feedback
@@ -170,7 +178,7 @@ MindLoop/
 │  │
 │  ├─ Agents/                      # Single-file agents (refactor to folders when >200 LOC)
 │  │  ├─ JournalAgent.swift        # Guided capture → normalized JournalEntry JSON
-│  │  ├─ EmbeddingAgent.swift      # Dual-mode: fast (MiniLM) + quality (Qwen3)
+│  │  ├─ EmbeddingAgent.swift      # Qwen3-Embedding-0.6B (462-dim, <200ms)
 │  │  ├─ RetrievalAgent.swift      # Vector search (top-k) + CBT card selection
 │  │  ├─ CoachAgent.swift          # Grounded response generation (Qwen3 + LoRA)
 │  │  ├─ SafetyAgent.swift         # Risk keyword detection + boundary gate
@@ -179,16 +187,18 @@ MindLoop/
 │  │  └─ EmotionAgent.swift        # Text sentiment classification (hybrid)
 │  │
 │  ├─ Services/
-│  │  ├─ STTService.swift          # WhisperKit (on-device CoreML Whisper) with streaming
+│  │  ├─ STTService.swift          # Apple Speech Framework (native on-device STT) with streaming
 │  │  ├─ TTSService.swift          # AVSpeechSynthesizer + optional Neural TTS
 │  │  ├─ EmotionService.swift      # OpenSMILE prosody extraction (C++ bridge)
-│  │  ├─ VectorStore.swift         # SQLite + SIMD-optimized cosine similarity
+│  │  ├─ ChunkingService.swift     # Semantic chunking at emotion/prosody boundaries
+│  │  ├─ VectorStore.swift         # SQLite + SIMD-optimized cosine similarity (chunks, not entries)
 │  │  ├─ ModelRuntime.swift        # MLX Swift adapter (Qwen3 + LoRA loading)
 │  │  └─ BM25Service.swift         # Lexical search fallback
 │  │
 │  ├─ Data/
 │  │  ├─ Models/                   # Domain models
 │  │  │  ├─ JournalEntry.swift     # id, timestamp, text, emotion, embeddings
+│  │  │  ├─ SemanticChunk.swift    # Entry chunk with emotion/prosody metadata
 │  │  │  ├─ EmotionSignal.swift    # prosody features + sentiment label
 │  │  │  ├─ CBTCard.swift          # Reusable CBT technique cards
 │  │  │  ├─ CoachResponse.swift    # Generated response + metadata
@@ -210,12 +220,11 @@ MindLoop/
 │     │  │     ├─ TextSecondary.colorset
 │     │  │     └─ TextTertiary.colorset
 │     │  └─ Icons/
-│     ├─ Models/                   # .mlpackage and .safetensors files
-│     │  ├─ qwen3-instruct-4b.mlpackage       # 2.1GB (INT4 quantized base model)
+│     ├─ Models/                   # MLX .safetensors files
+│     │  ├─ qwen3-4b-instruct-mlx/            # 2.1GB (INT4 quantized MLX)
 │     │  ├─ qwen3-lora-tone.safetensors       # 45MB (LoRA adapter)
 │     │  ├─ qwen3-lora-tone.sha256            # SHA-256 checksum for integrity
-│     │  ├─ minilm-embeddings.mlpackage       # 80MB (fast embeddings)
-│     │  └─ qwen3-embeddings.mlpackage        # 1.2GB (quality embeddings)
+│     │  └─ qwen3-embedding-0.6b-4bit/        # 320MB (462-dim MLX embeddings)
 │     ├─ Prompts/                  # Versioned prompt templates
 │     │  ├─ coach_system.txt       # Symlink/alias to current version
 │     │  ├─ coach_system_v1.txt    # Coach agent system prompt (versioned)
@@ -256,9 +265,8 @@ Optimized for **low latency** (<2s end-to-end) and **high accuracy** on-device.
 | **LLM Runtime** | MLX Swift | Apple Silicon optimized, fastest inference on iOS |
 | **Base Model** | Qwen3-Instruct 4B (INT4) | Best quality/size ratio, 2GB on disk |
 | **LoRA Adapters** | SafeTensors format | Hot-swappable, <50MB per adapter |
-| **Fast Embeddings** | MiniLM (CoreML) | <100ms latency for real-time retrieval |
-| **Quality Embeddings** | Qwen3 embeddings (MLX) | Background processing, higher recall |
-| **STT** | WhisperKit (CoreML) | Apple-optimized Whisper, <500ms transcription, streaming |
+| **Embeddings** | Qwen3-Embedding 0.6B (MLX 4-bit, 462-dim) | <200ms latency, consistent embeddings |
+| **STT** | Apple Speech Framework | Native iOS speech recognition, <300ms transcription, streaming, zero dependencies |
 | **TTS** | AVSpeechSynthesizer | Native, instant, 40+ languages |
 | **Prosody Analysis** | OpenSMILE (C++ bridge) | Industry standard, 6k+ acoustic features |
 | **Vector Search** | SQLite + custom SIMD | No dependencies, Accelerate.framework optimized |
@@ -269,7 +277,7 @@ Optimized for **low latency** (<2s end-to-end) and **high accuracy** on-device.
 | Operation | Target Latency | Fallback |
 |-----------|---------------|----------|
 | STT (10s audio) | <500ms | Text input |
-| Fast embedding | <100ms | Skip real-time context |
+| Embedding (462-dim) | <200ms | Skip real-time context |
 | Coach response | <2s | Show "thinking..." spinner |
 | TTS (50 words) | <1s | Text-only display |
 | Vector search (top-5) | <50ms | BM25 fallback |
@@ -310,16 +318,25 @@ Each agent implements a protocol with a single primary method. All agents are **
 **Prompt**: `Prompts/journal_guide.txt`
 
 ### EmbeddingAgent
-**Purpose**: Dual-mode embeddings (fast + quality)
-**Fast Mode**: MiniLM embeddings for real-time retrieval (<100ms)
-**Quality Mode**: Qwen3 embeddings in background queue (higher accuracy)
-**Output**: 384-dim float vector
+**Purpose**: Chunk-aware text embedding generation
+**Input**: Entry text OR SemanticChunk
+**Model**: Qwen3-Embedding-0.6B (MLX 4-bit quantized)
+**Latency**: <200ms per chunk embedding
+**Output**: 462-dim float vector per chunk
+**Process**:
+1. If entry > 400 tokens, ChunkingService splits at emotion boundaries
+2. Generate embedding for each chunk
+3. Store chunks with parent_entry_id + chunk metadata
 
 ### RetrievalAgent
-**Purpose**: Fetch relevant context (memories + CBT card)
-**Input**: Current entry + query embedding
-**Output**: Top-5 JournalEntries + 1 CBTCard (based on detected distortion)
-**Method**: Cosine similarity + recency boost (0.7 × similarity + 0.3 × recency)
+**Purpose**: Fetch relevant context chunks (not full entries)
+**Input**: Query embedding
+**Output**: Top-10 chunks → aggregate to top-5 parent entries + 1 CBTCard
+**Method**:
+1. Vector search returns top-10 most similar chunks
+2. Group chunks by parent_entry_id
+3. Rank entries by max chunk similarity
+4. Return top-5 entries with their best matching chunk for highlighting
 
 ### CoachAgent
 **Purpose**: Generate grounded, CBT-structured response
@@ -644,6 +661,129 @@ VStack(spacing: Spacing.l) { ... }
 
 ---
 
+## Semantic Chunking Strategy
+
+### Why Chunking?
+
+Journal entries can exceed the embedding model's 512 token limit (~400 words). Long entries (5+ minute voice journaling = 750+ words) would lose information if truncated.
+
+**MindLoop's advantage**: We have emotion + prosody metadata from OpenSMILE. Instead of arbitrary sentence chunking, we split at **natural emotion/topic boundaries**.
+
+### Chunking Algorithm
+
+```swift
+// Detect chunk boundaries at emotion shifts
+func detectBoundaries(entry: JournalEntry) -> [Int] {
+    var boundaries: [Int] = [0]
+    var currentEmotion: EmotionLabel? = nil
+    var currentTokens = 0
+
+    for (i, segment) in entry.segments.enumerated() {
+        let tokens = estimateTokens(segment.text)
+
+        // Hard constraint: max 400 tokens per chunk
+        if currentTokens + tokens > 400 {
+            boundaries.append(i)
+            currentTokens = 0
+            continue
+        }
+
+        // Emotion change detection
+        if let prevEmotion = currentEmotion,
+           prevEmotion != segment.emotion {
+            boundaries.append(i)
+            currentTokens = 0
+        }
+
+        currentEmotion = segment.emotion
+        currentTokens += tokens
+    }
+    return boundaries
+}
+```
+
+### Semantic Chunk Model
+
+```swift
+struct SemanticChunk {
+    let id: String                      // "entry-123_chunk-0"
+    let parentEntryId: String           // "entry-123"
+    let chunkIndex: Int                 // 0, 1, 2...
+    let text: String                    // Chunk text
+    let startTime: TimeInterval         // Seconds from entry start
+    let endTime: TimeInterval
+
+    // Aggregate emotion for chunk
+    let dominantEmotion: EmotionLabel   // Most frequent emotion
+    let emotionConfidence: Float        // Average confidence
+    let valence: Float                  // Average valence
+    let arousal: Float                  // Average arousal
+
+    // Aggregate prosody
+    let avgPitch: Float                 // Hz
+    let avgEnergy: Float                // 0-1
+    let avgSpeakingRate: Float          // syllables/sec
+
+    let tokenCount: Int                 // Estimated tokens
+}
+```
+
+### Database Schema
+
+```sql
+CREATE TABLE embeddings (
+    id TEXT PRIMARY KEY,                    -- "entry-123_chunk-0"
+    parent_entry_id TEXT NOT NULL,          -- "entry-123"
+    chunk_index INTEGER NOT NULL,           -- 0, 1, 2...
+    text TEXT NOT NULL,                     -- Chunk text
+    vector BLOB NOT NULL,                   -- 462-dim embedding
+    dimension INTEGER NOT NULL DEFAULT 462,
+    start_time REAL,
+    end_time REAL,
+    emotion_label TEXT NOT NULL,            -- Dominant emotion
+    emotion_confidence REAL NOT NULL,
+    emotion_valence REAL NOT NULL,
+    emotion_arousal REAL NOT NULL,
+    avg_pitch REAL,
+    avg_energy REAL,
+    avg_speaking_rate REAL,
+    token_count INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    FOREIGN KEY (parent_entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_embeddings_parent ON embeddings(parent_entry_id);
+CREATE INDEX idx_embeddings_emotion ON embeddings(emotion_label);
+```
+
+### Search with Chunks
+
+```swift
+// 1. Vector search returns top-10 chunks
+let chunks = vectorStore.findSimilar(queryEmbedding, k: 10)
+
+// 2. Group by parent entry, take max similarity
+let entriesByScore = chunks.groupBy(\.parentEntryId)
+    .mapValues { $0.map(\.similarity).max()! }
+
+// 3. Return top-5 entries with best chunk for highlighting
+let topEntries = entriesByScore
+    .sorted { $0.value > $1.value }
+    .prefix(5)
+
+// UI shows entry with specific chunk highlighted
+// User can jump to audio timestamp for that chunk
+```
+
+### Benefits
+
+1. **Emotional coherence**: Keeps complete emotional arcs together
+2. **Better retrieval**: Returns specific 30s segment, not entire 5min entry
+3. **Emotion filtering**: Can search "show anxious moments" → only anxious chunks
+4. **Audio playback**: Jump to specific chunk timestamp in recording
+
+---
+
 ## Streaming UI States
 
 The UI must reflect the following states during the audio-to-response pipeline:
@@ -771,17 +911,16 @@ All models stored in `Resources/Models/` and bundled with the app (increases app
 
 ```
 Resources/Models/
-├─ qwen3-instruct-4b.mlpackage       # 2.1GB (INT4 quantized)
+├─ qwen3-4b-instruct-mlx/            # 2.1GB (INT4 quantized MLX)
 ├─ qwen3-lora-tone.safetensors       # 45MB (adapter only)
 ├─ qwen3-lora-tone.sha256            # SHA-256 checksum for integrity verification
-├─ minilm-embeddings.mlpackage       # 80MB
-└─ qwen3-embeddings.mlpackage        # 1.2GB
+└─ qwen3-embedding-0.6b-4bit/        # 320MB (462-dim MLX embeddings)
 ```
 
 ### Loading Order & Memory Budget
 
 **On App Launch**:
-1. **Load MiniLM embeddings** (fast) immediately (~80MB resident memory)
+1. **Load Qwen3-Embedding model** immediately (~320MB resident memory)
 2. **Pre-warm Qwen3-Instruct base** in background queue (target <3s, ~2.5GB resident)
 3. **Mount LoRA adapter** after base is ready (~100MB additional)
 4. **Verify adapter checksum** (SHA-256) before mounting; refuse to load on mismatch
@@ -789,8 +928,7 @@ Resources/Models/
 **Memory Budget**: Keep total resident model memory **≤ 3.5 GB**.
 - Qwen3 base: ~2.5GB
 - LoRA adapter: ~100MB
-- MiniLM embeddings: ~80MB
-- Qwen3 embeddings (background only): ~500MB peak during embedding
+- Qwen3-Embedding: ~320MB
 
 **Unload unused adapters** when switching to free memory.
 
@@ -981,9 +1119,11 @@ Score each sampled turn **1–5**:
 - **Flexibility**: Easy LoRA loading, INT4/INT8 quantization
 - **Future-proof**: Apple's ML direction (see MLX announcement)
 
-### Why Dual Embeddings?
-- **Real-time**: MiniLM gives <100ms embeddings during audio recording (shows relevant context live)
-- **Quality**: Qwen3 embeddings in background improve retrieval accuracy over time
+### Why Qwen3-Embedding-0.6B?
+- **Fast enough**: <200ms for 462-dim embeddings (acceptable for real-time)
+- **Consistent**: Single embedding space (no mixing different models)
+- **Quality**: Better than tiny models, trained on multilingual data
+- **Efficient**: 4-bit quantization, only 320MB memory
 
 ### Why SQLite over CoreData?
 - **Vector Search**: Custom SIMD cosine similarity (Accelerate.framework)

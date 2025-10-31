@@ -67,3 +67,8 @@ playground.xcworkspace
 # Swift
 *.swiftmodule
 *.swiftdoc
+
+# MLX Model Files (too large for git - download separately)
+**/*.safetensors
+**/Models/qwen*/
+!**/Models/.gitkeep
