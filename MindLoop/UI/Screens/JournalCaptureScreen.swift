@@ -160,7 +160,7 @@ struct JournalCaptureScreen: View {
 
     private func handleStop() {
         // Stop recording and get audio file URL
-        let audioURL = audioRecorder.stopRecording()
+        _ = audioRecorder.stopRecording()
 
         micState = .idle
         stopTimer()

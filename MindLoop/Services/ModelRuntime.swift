@@ -232,7 +232,7 @@ final class ModelRuntime {
             throw ModelError.embeddingModelNotLoaded
         }
 
-        let embedding: [Float] = try await llm.perform { context in
+        let embedding: [Float] = await llm.perform { context in
             let tokenized = context.tokenizer.encode(text: text)
             var vec = [Float](repeating: 0, count: dimension)
             for (i, tokenId) in tokenized.enumerated() {
