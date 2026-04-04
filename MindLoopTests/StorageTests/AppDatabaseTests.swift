@@ -222,14 +222,17 @@ struct AppDatabaseTests {
             try db.saveEntry(entry)
         }
 
-        // Read concurrently
-        await withTaskGroup(of: Void.self) { group in
+        // Read concurrently — collect results and verify outside the group
+        let results = await withTaskGroup(of: Int.self, returning: [Int].self) { group in
             for _ in 0..<10 {
                 group.addTask {
-                    let entries = try? db.fetchAllEntries()
-                    assert(entries?.count == 10)
+                    (try? db.fetchAllEntries())?.count ?? -1
                 }
             }
+            var counts: [Int] = []
+            for await count in group { counts.append(count) }
+            return counts
         }
+        #expect(results.allSatisfy { $0 == 10 })
     }
 }

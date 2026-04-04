@@ -70,8 +70,8 @@ final class VectorStore: Sendable {
                 WHERE sc.embedding IS NOT NULL
             """)
 
-            // Compute similarity for each chunk
-            var chunkResults: [(chunkId: String, parentId: String, similarity: Double, timestamp: Double)] = []
+            // Compute combined score (similarity + recency) for each chunk
+            var chunkResults: [(chunkId: String, parentId: String, score: Double)] = []
 
             for row in rows {
                 let chunkId: String = row["id"]
@@ -84,20 +84,24 @@ final class VectorStore: Sendable {
 
                 let normalizedVector = Self.normalize(vector)
                 let similarity = Self.cosineSimilarity(normalizedQuery, normalizedVector)
-                chunkResults.append((chunkId, parentId, similarity, entryTimestamp.timeIntervalSince1970))
+
+                // Apply recency boost before cutoff so recent entries aren't lost
+                let ageInDays = (now - entryTimestamp.timeIntervalSince1970) / 86400.0
+                let recency = exp(-ageInDays / 30.0)
+                let score = (1.0 - recencyBoost) * similarity + recencyBoost * recency
+
+                chunkResults.append((chunkId, parentId, score))
             }
 
-            // Sort by similarity, take top chunkK
-            chunkResults.sort { $0.similarity > $1.similarity }
+            // Sort by combined score, take top chunkK
+            chunkResults.sort { $0.score > $1.score }
             let topChunks = chunkResults.prefix(chunkK)
 
             // Group by parent entry, keep best score per entry
             var entryScores: [String: (score: Double, chunkId: String)] = [:]
 
             for chunk in topChunks {
-                let ageInDays = (now - chunk.timestamp) / 86400.0
-                let recency = exp(-ageInDays / 30.0)
-                let score = (1.0 - recencyBoost) * chunk.similarity + recencyBoost * recency
+                let score = chunk.score
 
                 if let existing = entryScores[chunk.parentId] {
                     if score > existing.score {

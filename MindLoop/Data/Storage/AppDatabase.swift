@@ -28,7 +28,7 @@ final class AppDatabase: Sendable {
     /// Use `:memory:` for test databases.
     init(_ dbQueue: DatabaseQueue) throws {
         self.dbQueue = dbQueue
-        try migrator.migrate(dbQueue)
+        try Self.migrator.migrate(dbQueue)
     }
 
     /// Opens a production database in the app's Documents directory
@@ -63,13 +63,8 @@ final class AppDatabase: Sendable {
 
     // MARK: - Migrations
 
-    private var migrator: DatabaseMigrator {
+    private static let migrator: DatabaseMigrator = {
         var migrator = DatabaseMigrator()
-
-        #if DEBUG
-        // Speed up development by nuking the database when migrations change
-        migrator.eraseDatabaseOnSchemaChange = true
-        #endif
 
         // v1: Core tables
         migrator.registerMigration("v1_initial") { db in
@@ -160,7 +155,7 @@ final class AppDatabase: Sendable {
         }
 
         return migrator
-    }
+    }()
 }
 
 // MARK: - Journal Entry Operations
@@ -268,11 +263,13 @@ extension AppDatabase {
 extension AppDatabase {
     /// Get or create the default profile
     func fetchProfile() throws -> PersonalizationProfileRecord {
-        try dbQueue.read { db in
+        try dbQueue.write { db in
             if let profile = try PersonalizationProfileRecord.fetchOne(db, key: "default") {
                 return profile
             }
-            return PersonalizationProfileRecord.makeDefault()
+            let profile = PersonalizationProfileRecord.makeDefault()
+            try profile.save(db)
+            return profile
         }
     }
 

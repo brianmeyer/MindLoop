@@ -48,7 +48,7 @@ final class BM25Service: Sendable {
 
             let rows = try Row.fetchAll(db, sql: """
                 SELECT fts.id,
-                       bm25(journalEntry_fts, \(k1), \(b)) AS bm25_score,
+                       bm25(journalEntry_fts) AS bm25_score,
                        j.timestamp
                 FROM journalEntry_fts fts
                 JOIN journalEntry j ON fts.id = j.id
