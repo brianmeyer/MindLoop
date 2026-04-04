@@ -17,6 +17,7 @@
 		2C89E1792EAEF3550088AB7E /* MLXFast in Frameworks */ = {isa = PBXBuildFile; productRef = 2C89E1782EAEF3550088AB7E /* MLXFast */; };
 		2C89E17B2EAEF3550088AB7E /* MLXLinalg in Frameworks */ = {isa = PBXBuildFile; productRef = 2C89E17A2EAEF3550088AB7E /* MLXLinalg */; };
 		2C89E17D2EAEF3550088AB7E /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = 2C89E17C2EAEF3550088AB7E /* MLXNN */; };
+		AA000003GRDB000000000003 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002GRDB000000000002 /* GRDB */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +76,7 @@
 				2C89E17D2EAEF3550088AB7E /* MLXNN in Frameworks */,
 				2C58545B2EB0482100ABFCF3 /* MLXLMCommon in Frameworks */,
 				2C89E1772EAEF3550088AB7E /* MLXFFT in Frameworks */,
+				AA000003GRDB000000000003 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -145,6 +147,7 @@
 				2C58545A2EB0482100ABFCF3 /* MLXLMCommon */,
 				2C58545C2EB0482100ABFCF3 /* MLXMNIST */,
 				2C58545E2EB0482100ABFCF3 /* MLXVLM */,
+				AA000002GRDB000000000002 /* GRDB */,
 			);
 			productName = MindLoop;
 			productReference = 2C89E0D12EAE8D3A0088AB7E /* MindLoop.app */;
@@ -231,6 +234,7 @@
 			packageReferences = (
 				2C89E1732EAEF3550088AB7E /* XCRemoteSwiftPackageReference "mlx-swift" */,
 				2C5854552EB0482100ABFCF3 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
+				AA000001GRDB000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2C89E0D22EAE8D3A0088AB7E /* Products */;
@@ -633,6 +637,14 @@
 				minimumVersion = 0.29.1;
 			};
 		};
+		AA000001GRDB000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -685,6 +697,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2C89E1732EAEF3550088AB7E /* XCRemoteSwiftPackageReference "mlx-swift" */;
 			productName = MLXNN;
+		};
+		AA000002GRDB000000000002 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000001GRDB000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
