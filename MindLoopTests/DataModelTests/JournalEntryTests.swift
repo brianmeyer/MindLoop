@@ -98,7 +98,7 @@ struct JournalEntryTests {
     
     @Test("JournalEntry formatted date is readable")
     func testFormattedDate() {
-        let date = Date(timeIntervalSince1970: 1609459200) // Jan 1, 2021
+        let date = Date(timeIntervalSince1970: 1609502400) // Jan 1, 2021 12:00 UTC (Jan 1 in all US timezones)
         let entry = JournalEntry(
             id: "test",
             timestamp: date,

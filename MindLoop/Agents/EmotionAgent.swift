@@ -9,7 +9,19 @@
 import Foundation
 
 /// Hybrid emotion analysis agent combining text sentiment and prosody features
-struct EmotionAgent {
+struct EmotionAgent: AgentProtocol, Sendable {
+
+    // MARK: - AgentProtocol
+
+    typealias Input = (text: String, prosodyFeatures: [String: Double])
+    typealias Output = EmotionSignal
+
+    var name: String { "EmotionAgent" }
+
+    /// Satisfy `AgentProtocol.process(_:)` by delegating to the convenience method.
+    func process(_ input: Input) async throws -> EmotionSignal {
+        analyze(text: input.text, prosodyFeatures: input.prosodyFeatures)
+    }
 
     // MARK: - Keyword Dictionaries
 

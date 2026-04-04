@@ -8,11 +8,6 @@
 
 import Foundation
 
-/// Protocol for journal normalization, enabling mock injection in tests.
-protocol JournalAgentProtocol {
-    func normalize(text: String, emotion: EmotionSignal) -> JournalEntry
-}
-
 /// Normalizes raw user input into a structured `JournalEntry` with extracted tags.
 ///
 /// Responsibilities:
@@ -20,7 +15,19 @@ protocol JournalAgentProtocol {
 /// - Extract keyword-based tags from text content
 /// - Derive mood tags from the emotion signal
 /// - Produce a complete `JournalEntry` with generated ID and timestamp
-struct JournalAgent: JournalAgentProtocol {
+struct JournalAgent: AgentProtocol {
+
+    // MARK: - AgentProtocol
+
+    typealias Input = (text: String, emotion: EmotionSignal)
+    typealias Output = JournalEntry
+
+    var name: String { "JournalAgent" }
+
+    /// Satisfy `AgentProtocol.process(_:)` by delegating to the convenience method.
+    func process(_ input: Input) async throws -> JournalEntry {
+        normalize(text: input.text, emotion: input.emotion)
+    }
 
     // MARK: - Tag Dictionaries
 
@@ -145,8 +152,11 @@ struct JournalAgent: JournalAgentProtocol {
             // Keep a single trailing period, question mark, or exclamation mark
             let sentenceEnders: CharacterSet = CharacterSet(charactersIn: ".!?")
             if sentenceEnders.contains(last) {
-                // Check if the character before it is also punctuation — if so, strip
-                let beforeLast = result.unicodeScalars[result.unicodeScalars.index(before: result.unicodeScalars.endIndex)]
+                // Check if the character before it is also the same punctuation — if so, strip
+                let scalars = result.unicodeScalars
+                let lastIndex = scalars.index(before: scalars.endIndex)
+                let beforeLastIndex = scalars.index(before: lastIndex)
+                let beforeLast = scalars[beforeLastIndex]
                 if beforeLast == last {
                     result = String(result.dropLast())
                 } else {

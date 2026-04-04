@@ -9,7 +9,20 @@
 import Foundation
 
 /// Embedding generation agent using bge-small-en-v1.5 via MLXEmbedders
-final class EmbeddingAgent {
+final class EmbeddingAgent: AgentProtocol, @unchecked Sendable {
+
+    // MARK: - AgentProtocol
+
+    typealias Input = String
+    typealias Output = [Float]
+
+    var name: String { "EmbeddingAgent" }
+
+    /// Satisfy `AgentProtocol.process(_:)` by delegating to the convenience method.
+    func process(_ input: String) async throws -> [Float] {
+        try await generate(text: input)
+    }
+
     // MARK: - Properties
 
     /// Shared singleton instance

@@ -15,7 +15,19 @@ import Foundation
 ///
 /// The SafetyAgent is **non-overridable**: no other agent (including
 /// LearningLoopAgent or personalization) may bypass a `.block` decision.
-struct SafetyAgent {
+struct SafetyAgent: AgentProtocol {
+
+    // MARK: - AgentProtocol
+
+    typealias Input = String
+    typealias Output = SafetyGateResult
+
+    var name: String { "SafetyAgent" }
+
+    /// Satisfy `AgentProtocol.process(_:)` by delegating to the convenience method.
+    func process(_ input: String) async throws -> SafetyGateResult {
+        gate(input)
+    }
 
     // MARK: - Crisis Keywords (embedded for v1)
 

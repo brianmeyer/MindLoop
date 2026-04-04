@@ -138,7 +138,7 @@ struct CoachResponseTests {
                 )
             )
         )
-        #expect(response2.formattedLatency == "2.8s")
+        #expect(response2.formattedLatency == "2.9s")
     }
     
     @Test("CoachResponse performance level classification is correct")

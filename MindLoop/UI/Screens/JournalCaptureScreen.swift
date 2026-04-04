@@ -165,7 +165,7 @@ struct JournalCaptureScreen: View {
         micState = .idle
         stopTimer()
 
-        // TODO (Phase 2): Send audioURL to Apple Speech Framework for transcription
+        // TODO (Phase 4): Send audio to Gemma 4 E2B via ModelRuntime (native multimodal)
         // For now, only complete if there's manual text
         if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || seconds > 0 {
             onComplete(transcript)
