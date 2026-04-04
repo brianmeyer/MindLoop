@@ -177,6 +177,12 @@ struct SafetyAgent {
             return "pii_email"
         }
 
+        // Check credit cards before phone numbers — a 16-digit card number
+        // contains substrings that match the 10-digit phone pattern
+        if Self.creditCardPattern.firstMatch(in: text, range: range) != nil {
+            return "pii_credit_card"
+        }
+
         // For phone numbers, exclude known safe numbers (crisis lines)
         let phoneMatches = Self.phonePattern.matches(in: text, range: range)
         for match in phoneMatches {
@@ -193,10 +199,6 @@ struct SafetyAgent {
 
         if Self.ssnPattern.firstMatch(in: text, range: range) != nil {
             return "pii_ssn"
-        }
-
-        if Self.creditCardPattern.firstMatch(in: text, range: range) != nil {
-            return "pii_credit_card"
         }
 
         return nil
