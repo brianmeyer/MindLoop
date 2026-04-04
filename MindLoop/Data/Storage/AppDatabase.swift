@@ -236,9 +236,17 @@ extension AppDatabase {
 // MARK: - Personalization Profile Operations
 
 extension AppDatabase {
-    /// Get or create the default profile
+    /// Get or create the default profile.
+    /// Uses read-first to avoid exclusive lock on every coach turn.
     func fetchProfile() throws -> PersonalizationProfileRecord {
-        try dbQueue.write { db in
+        // Fast path: read without exclusive lock
+        if let profile = try dbQueue.read({ db in
+            try PersonalizationProfileRecord.fetchOne(db, key: "default")
+        }) {
+            return profile
+        }
+        // Slow path: create default (only runs once)
+        return try dbQueue.write { db in
             if let profile = try PersonalizationProfileRecord.fetchOne(db, key: "default") {
                 return profile
             }
