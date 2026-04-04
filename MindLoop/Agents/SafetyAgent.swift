@@ -9,20 +9,6 @@
 
 import Foundation
 
-// MARK: - SafetyGateResult
-
-/// Result of the safety gate check
-enum SafetyGateResult: Equatable {
-    case allow
-    case block(reason: String)
-
-    /// Whether this result is a block
-    var isBlocked: Bool {
-        if case .block = self { return true }
-        return false
-    }
-}
-
 // MARK: - SafetyAgent
 
 /// Final gate for risk keywords, PII, and medical boundary violations.
