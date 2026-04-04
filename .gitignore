@@ -73,5 +73,6 @@ playground.xcworkspace
 **/Models/qwen*/
 **/Models/gemma-*/
 **/Models/gte-*/
+**/Models/bge-*/
 !**/Models/README.md
 .claude/
