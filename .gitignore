@@ -71,4 +71,7 @@ playground.xcworkspace
 # MLX Model Files (too large for git - download separately)
 **/*.safetensors
 **/Models/qwen*/
-!**/Models/.gitkeep
+**/Models/gemma-*/
+**/Models/gte-*/
+!**/Models/README.md
+.claude/

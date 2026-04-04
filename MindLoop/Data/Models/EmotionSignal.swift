@@ -54,8 +54,8 @@ struct EmotionSignal: Codable, Equatable {
     /// Arousal: low (0.0) to high (1.0)
     let arousal: Double
 
-    /// Raw prosody features from OpenSMILE
-    /// Keys: pitch_mean, pitch_std, energy_mean, energy_std, speaking_rate, etc.
+    /// Raw prosody features from native Apple frameworks (SFVoiceAnalytics + SpeechRecognitionMetadata)
+    /// Keys: pitch_mean, pitch_std, jitter, shimmer, speaking_rate, pause_duration, energy_mean
     let prosodyFeatures: [String: Double]
 
     // MARK: - Initialization

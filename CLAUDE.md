@@ -66,7 +66,7 @@ When working on MindLoop, follow these rules strictly:
 
 ### Ask Before Adding Dependencies
 - **Do not add 3rd-party packages; prefer stdlib/Apple frameworks.**
-- If unavoidable (e.g., MLX Swift, MLXLLM, OpenSMILE), propose first with rationale.
+- If unavoidable (e.g., MLX Swift, MLXLLM), propose first with rationale.
 - No large UI kits, networking libraries, or analytics SDKs.
 
 ### Write Tests With Code
@@ -92,13 +92,13 @@ When working on MindLoop, follow these rules strictly:
 ```
 1. User Audio/Text Input
    ├─ If Audio → STTService.transcribe() → partial + final transcript (streaming)
-   ├─ EmotionService.extractProsody(audio) → prosody features
+   ├─ SFVoiceAnalytics → prosody features (pitch, jitter, shimmer)
    ├─ EmotionAgent.analyzeText(transcript or text) → sentiment label
    └─ Merge → EmotionSignal
 
 2. Fast Context Retrieval (real-time during audio)
    └─ RetrievalAgent.quickSearch(partialTranscript) → top-3 recent memories
-      // Uses Qwen3-Embedding-0.6B (462-dim) for <200ms latency
+      // Uses gte-small (384-dim) for <50ms latency
 
 3. Journal Agent.normalize(entry, EmotionSignal)
    └─ Outputs: JournalEntry (structured JSON)
@@ -112,7 +112,7 @@ When working on MindLoop, follow these rules strictly:
    └─ Returns: [SemanticChunk] with emotion + prosody metadata
 
 6. EmbeddingAgent.generateEmbedding(chunks)
-   └─ Runs Qwen3-Embedding-0.6B (462-dim, <200ms) per chunk
+   └─ Runs gte-small (384-dim, <50ms) per chunk
    └─ Stores chunk embeddings with parent_entry_id reference
 
 7. LearningLoopAgent.updateProfile(entry, feedback)
@@ -178,9 +178,9 @@ MindLoop/
 │  │
 │  ├─ Agents/                      # Single-file agents (refactor to folders when >200 LOC)
 │  │  ├─ JournalAgent.swift        # Guided capture → normalized JournalEntry JSON
-│  │  ├─ EmbeddingAgent.swift      # Qwen3-Embedding-0.6B (462-dim, <200ms)
+│  │  ├─ EmbeddingAgent.swift      # gte-small (384-dim, <50ms)
 │  │  ├─ RetrievalAgent.swift      # Vector search (top-k) + CBT card selection
-│  │  ├─ CoachAgent.swift          # Grounded response generation (Qwen3 + LoRA)
+│  │  ├─ CoachAgent.swift          # Grounded response generation (Gemma 4 E2B)
 │  │  ├─ SafetyAgent.swift         # Risk keyword detection + boundary gate
 │  │  ├─ LearningLoopAgent.swift   # Per-user adaptation + preference tracking
 │  │  ├─ TrendsAgent.swift         # Weekly stats (no LLM, pure aggregation)
@@ -189,10 +189,10 @@ MindLoop/
 │  ├─ Services/
 │  │  ├─ STTService.swift          # Apple Speech Framework (native on-device STT) with streaming
 │  │  ├─ TTSService.swift          # AVSpeechSynthesizer + optional Neural TTS
-│  │  ├─ EmotionService.swift      # OpenSMILE prosody extraction (C++ bridge)
+│  │  ├─ EmotionService.swift      # Native prosody extraction (SFVoiceAnalytics + SpeechRecognitionMetadata)
 │  │  ├─ ChunkingService.swift     # Semantic chunking at emotion/prosody boundaries
 │  │  ├─ VectorStore.swift         # SQLite + SIMD-optimized cosine similarity (chunks, not entries)
-│  │  ├─ ModelRuntime.swift        # MLX Swift adapter (Qwen3 + LoRA loading)
+│  │  ├─ ModelRuntime.swift        # MLX Swift adapter (Gemma 4 E2B + gte-small)
 │  │  └─ BM25Service.swift         # Lexical search fallback
 │  │
 │  ├─ Data/
@@ -221,10 +221,8 @@ MindLoop/
 │     │  │     └─ TextTertiary.colorset
 │     │  └─ Icons/
 │     ├─ Models/                   # MLX .safetensors files
-│     │  ├─ qwen3-4b-instruct-mlx/            # 2.1GB (INT4 quantized MLX)
-│     │  ├─ qwen3-lora-tone.safetensors       # 45MB (LoRA adapter)
-│     │  ├─ qwen3-lora-tone.sha256            # SHA-256 checksum for integrity
-│     │  └─ qwen3-embedding-0.6b-4bit/        # 320MB (462-dim MLX embeddings)
+│     │  ├─ gemma-4-e2b-it-4bit/              # ~1GB (Gemma 4 E2B, MLX 4-bit)
+│     │  └─ gte-small-4bit/                   # ~15MB (384-dim MLX embeddings)
 │     ├─ Prompts/                  # Versioned prompt templates
 │     │  ├─ coach_system.txt       # Symlink/alias to current version
 │     │  ├─ coach_system_v1.txt    # Coach agent system prompt (versioned)
@@ -263,12 +261,13 @@ Optimized for **low latency** (<2s end-to-end) and **high accuracy** on-device.
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
 | **LLM Runtime** | MLX Swift | Apple Silicon optimized, fastest inference on iOS |
-| **Base Model** | Qwen3-Instruct 4B (INT4) | Best quality/size ratio, 2GB on disk |
-| **LoRA Adapters** | SafeTensors format | Hot-swappable, <50MB per adapter |
-| **Embeddings** | Qwen3-Embedding 0.6B (MLX 4-bit, 462-dim) | <200ms latency, consistent embeddings |
-| **STT** | Apple Speech Framework | Native iOS speech recognition, <300ms transcription, streaming, zero dependencies |
+| **Base Model** | Gemma 4 E2B-it (MLX 4-bit, ~1GB) | Smallest Gemma 4, any-to-any multimodal, Apache 2.0. Upgrade path to E4B. |
+| **LoRA Adapters** | SafeTensors format | Hot-swappable, <50MB per adapter (post-MVP) |
+| **Embeddings** | gte-small (MLX 4-bit, 384-dim, ~15MB) | Best quality/size ratio at this tier (MTEB ~61), 20x smaller than Qwen3-Embedding |
+| **STT** | iOS 26 SpeechAnalyzer (SpeechTranscriber) | Native, modular, on-device, zero dependencies. Replaces older SFSpeechRecognizer. |
 | **TTS** | AVSpeechSynthesizer | Native, instant, 40+ languages |
-| **Prosody Analysis** | OpenSMILE (C++ bridge) | Industry standard, 6k+ acoustic features |
+| **Prosody Analysis** | Apple native (SFVoiceAnalytics + SpeechRecognitionMetadata) | Pitch, jitter, shimmer, speaking rate, pause duration — sufficient for 4-category emotion |
+| **Sound Classification** | SoundAnalysis (SNClassifySoundRequest) | ~300 built-in categories (laughter, crying, etc.) — supplementary emotion signal |
 | **Vector Search** | SQLite + custom SIMD | No dependencies, Accelerate.framework optimized |
 | **BM25** | Pure Swift implementation | Fast lexical fallback when embeddings fail |
 
@@ -277,7 +276,7 @@ Optimized for **low latency** (<2s end-to-end) and **high accuracy** on-device.
 | Operation | Target Latency | Fallback |
 |-----------|---------------|----------|
 | STT (10s audio) | <500ms | Text input |
-| Embedding (462-dim) | <200ms | Skip real-time context |
+| Embedding (384-dim) | <50ms | Skip real-time context |
 | Coach response | <2s | Show "thinking..." spinner |
 | TTS (50 words) | <1s | Text-only display |
 | Vector search (top-5) | <50ms | BM25 fallback |
@@ -320,9 +319,9 @@ Each agent implements a protocol with a single primary method. All agents are **
 ### EmbeddingAgent
 **Purpose**: Chunk-aware text embedding generation
 **Input**: Entry text OR SemanticChunk
-**Model**: Qwen3-Embedding-0.6B (MLX 4-bit quantized)
-**Latency**: <200ms per chunk embedding
-**Output**: 462-dim float vector per chunk
+**Model**: gte-small (MLX 4-bit quantized, ~15MB)
+**Latency**: <50ms per chunk embedding
+**Output**: 384-dim float vector per chunk
 **Process**:
 1. If entry > 400 tokens, ChunkingService splits at emotion boundaries
 2. Generate embedding for each chunk
@@ -348,7 +347,7 @@ Each agent implements a protocol with a single primary method. All agents are **
 
 **Output**: `CoachResponse` (text, cited_entries, suggested_action, next_state)
 **Prompt**: `Prompts/coach_system.txt` + RAG context injection
-**Model**: Qwen3-Instruct + LoRA adapter
+**Model**: Gemma 4 E2B-it (MLX 4-bit)
 **Constraint**: Response must be **~80–120 tokens** (enforced by Orchestrator post-processing)
 
 **Streaming**: `CoachAgent.streamResponse(...)` returns `AsyncSequence<String>` for token-by-token UI updates. Non-streaming `respond(...)` remains for tests/offline mode.
@@ -406,10 +405,21 @@ Each agent implements a protocol with a single primary method. All agents are **
 **Method**: Pure aggregation (COUNT, GROUP BY, etc.)
 
 ### EmotionAgent
-**Purpose**: Hybrid text sentiment classification
-**Input**: Text transcript + prosody features (from EmotionService)
+**Purpose**: Hybrid text sentiment + prosody classification
+**Input**: Text transcript + native prosody features (from SFVoiceAnalytics + SpeechRecognitionMetadata)
 **Output**: `EmotionSignal` (label: neutral/positive/anxious/sad, confidence: 0-1)
-**Method**: Weighted average (0.6 × text_sentiment + 0.4 × prosody_valence)
+**Prosody Features Used**:
+  - Pitch (F0 mean/variance) — from `SFVoiceAnalytics.pitch`
+  - Jitter — from `SFVoiceAnalytics.jitter`
+  - Shimmer — from `SFVoiceAnalytics.shimmer`
+  - Speaking rate — from `SFSpeechRecognitionMetadata.speakingRate`
+  - Pause duration — from `SFSpeechRecognitionMetadata.averagePauseDuration`
+**Method**: Weighted average (0.6 × text_sentiment + 0.4 × prosody_classification)
+**Classification Rules** (v1, rule-based):
+  - Anxious: high pitch variance + fast speaking rate + high jitter
+  - Sad: low pitch + slow speaking rate + long pauses + high shimmer
+  - Positive: moderate pitch + moderate rate + low jitter
+  - Neutral: baseline values
 
 ---
 
@@ -667,7 +677,7 @@ VStack(spacing: Spacing.l) { ... }
 
 Journal entries can exceed the embedding model's 512 token limit (~400 words). Long entries (5+ minute voice journaling = 750+ words) would lose information if truncated.
 
-**MindLoop's advantage**: We have emotion + prosody metadata from OpenSMILE. Instead of arbitrary sentence chunking, we split at **natural emotion/topic boundaries**.
+**MindLoop's advantage**: We have emotion + prosody metadata from native Apple frameworks (SFVoiceAnalytics). Instead of arbitrary sentence chunking, we split at **natural emotion/topic boundaries**.
 
 ### Chunking Algorithm
 
@@ -736,8 +746,8 @@ CREATE TABLE embeddings (
     parent_entry_id TEXT NOT NULL,          -- "entry-123"
     chunk_index INTEGER NOT NULL,           -- 0, 1, 2...
     text TEXT NOT NULL,                     -- Chunk text
-    vector BLOB NOT NULL,                   -- 462-dim embedding
-    dimension INTEGER NOT NULL DEFAULT 462,
+    vector BLOB NOT NULL,                   -- 384-dim embedding
+    dimension INTEGER NOT NULL DEFAULT 384,
     start_time REAL,
     end_time REAL,
     emotion_label TEXT NOT NULL,            -- Dominant emotion
@@ -907,28 +917,23 @@ for await token in await coachAgent.streamResponse(entry, emotion, context, prof
 
 ### Storage Location
 
-All models stored in `Resources/Models/` and bundled with the app (increases app size by ~3GB).
+All models stored in `Resources/Models/` and bundled with the app (increases app size by ~1.1GB).
 
 ```
 Resources/Models/
-├─ qwen3-4b-instruct-mlx/            # 2.1GB (INT4 quantized MLX)
-├─ qwen3-lora-tone.safetensors       # 45MB (adapter only)
-├─ qwen3-lora-tone.sha256            # SHA-256 checksum for integrity verification
-└─ qwen3-embedding-0.6b-4bit/        # 320MB (462-dim MLX embeddings)
+├─ gemma-4-e2b-it-4bit/              # ~1GB (Gemma 4 E2B, MLX 4-bit quantized)
+└─ gte-small-4bit/                   # ~15MB (384-dim MLX embeddings)
 ```
 
 ### Loading Order & Memory Budget
 
 **On App Launch**:
-1. **Load Qwen3-Embedding model** immediately (~320MB resident memory)
-2. **Pre-warm Qwen3-Instruct base** in background queue (target <3s, ~2.5GB resident)
-3. **Mount LoRA adapter** after base is ready (~100MB additional)
-4. **Verify adapter checksum** (SHA-256) before mounting; refuse to load on mismatch
+1. **Load gte-small embedding model** immediately (~50MB resident memory)
+2. **Pre-warm Gemma 4 E2B** in background queue (target <3s, ~1.5GB resident)
 
-**Memory Budget**: Keep total resident model memory **≤ 3.5 GB**.
-- Qwen3 base: ~2.5GB
-- LoRA adapter: ~100MB
-- Qwen3-Embedding: ~320MB
+**Memory Budget**: Keep total resident model memory **≤ 2.0 GB**.
+- Gemma 4 E2B: ~1.5GB
+- gte-small: ~50MB
 
 **Unload unused adapters** when switching to free memory.
 
@@ -1119,11 +1124,11 @@ Score each sampled turn **1–5**:
 - **Flexibility**: Easy LoRA loading, INT4/INT8 quantization
 - **Future-proof**: Apple's ML direction (see MLX announcement)
 
-### Why Qwen3-Embedding-0.6B?
-- **Fast enough**: <200ms for 462-dim embeddings (acceptable for real-time)
-- **Consistent**: Single embedding space (no mixing different models)
-- **Quality**: Better than tiny models, trained on multilingual data
-- **Efficient**: 4-bit quantization, only 320MB memory
+### Why gte-small?
+- **Tiny**: ~15MB on disk (4-bit), ~50MB resident — 20x smaller than Qwen3-Embedding
+- **Fast**: <50ms for 384-dim embeddings
+- **Quality**: MTEB ~61 — nearly as good as models 10x its size
+- **Proven**: Well-established MLX community port
 
 ### Why SQLite over CoreData?
 - **Vector Search**: Custom SIMD cosine similarity (Accelerate.framework)
@@ -1173,7 +1178,7 @@ Score each sampled turn **1–5**:
 
 ---
 
-**Last Updated**: 2025-10-26
+**Last Updated**: 2026-04-04
 **iOS Target**: 26.0+
 **Swift Version**: 5.0+
 **Maintained by**: Brian Meyer ([@brianmeyer](https://github.com/brianmeyer))
