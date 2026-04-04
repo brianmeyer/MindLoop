@@ -1,20 +1,22 @@
 # Handoff
 
 ## State
-Branch `grdb-migration` pushed (4 commits). GRDB migration complete: AppDatabase.swift, Records.swift, VectorStore.swift, BM25Service.swift all using GRDB. SQLiteManager deleted. 179/191 tests passing, zero crashes. Full codebase audit done — 13 Linear tickets created (REC-258 through REC-270). ModelRuntime.swift is entirely wrong (Qwen3 refs, 462-dim, random embeddings) — REC-262 is the next blocker.
+Main branch pushed. 181/189 tests passing, zero crashes. GRDB migration complete. ModelRuntime updated to Gemma4 E2B + bge-small-en-v1.5 (384-dim). 7 tickets done (REC-258 partial, 259, 260, 262, 264, 266, 267, 269). Full codebase audit done — 13 tickets created (REC-258–270). Embedding model changed from gte-small to bge-small-en-v1.5 (already in MLXEmbedders registry, MTEB 58.6, zero integration work).
 
 ## Next
-1. Merge `grdb-migration` → main (179/191 passing, good enough to merge — remaining 12 are pre-existing)
-2. Quick wins on same branch or main: REC-264 (dead code), REC-266 (duplicate CBTState), REC-267 (force unwraps), REC-269 (Sendable)
-3. REC-262: ModelRuntime Qwen3→Gemma4 E2B + 462→384 dim — BLOCKING for all Phase 3/4 work
-4. After 262: REC-261 (delete STTService), REC-263 (AgentProtocol conformance), then Phase 3 agents (REC-229-232) on parallel worktree branches
+1. REC-263: Make all agents implement AgentProtocol + Sendable (unblocks Phase 3)
+2. REC-261: Delete STTService (fixes 4 of remaining 8 test failures)
+3. Fix last 4 minor test failures: JournalAgent normalization (2), date formatting (1), latency rounding (1)
+4. REC-268: CLAUDE.md comprehensive rewrite
+5. Phase 3 remaining: REC-229 RetrievalAgent, REC-230 CoachAgent, REC-231 LearningLoopAgent, REC-232 Orchestrator — run as parallel worktree agents
 
 ## Context
-- ALWAYS use skills (ios, swift, testing, crash-debugging), MCPs (mcp__xcode__*, mcp__linear-server__*), plugins (codex:rescue for review). Brian is emphatic.
+- Embedding model is bge-small-en-v1.5 (NOT gte-small). Already in MLXEmbedders registry as `.bge_small`. 384-dim, ~35MB, MTEB 58.6.
+- ALWAYS use skills, MCPs, plugins. Brian is emphatic. Run parallel background agents for independent work.
 - Use `-disable-concurrent-destination-testing` for tests
-- GRDB stores Date as datetime — use Date type in Row subscripts, not Double
-- Embedding dim is 384 (gte-small), not 462 (Qwen3)
+- GRDB stores Date as datetime — use Date type in Row subscripts
 - SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated
 - Gemma4 E2B handles audio natively — STTService is redundant (REC-261)
-- CoachResponse has duplicate CBTState that will break Orchestrator (REC-266)
-- safety_keywords.json has "end it all" but SafetyAgent doesn't catch it — matching bug
+- CoachResponse.CBTState removed — uses AgentProtocol.CBTState directly
+- JournalEntry.embeddings field removed — embeddings live on SemanticChunk
+- safety_keywords.json needs "ending it all" variant (already added to SafetyAgent.swift)
