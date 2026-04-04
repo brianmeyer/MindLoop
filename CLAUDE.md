@@ -1178,6 +1178,65 @@ Score each sampled turn **1–5**:
 
 ---
 
+## Required Claude Code Tools
+
+**ALWAYS use these skills, MCPs, and plugins when working on MindLoop. Do not do manually what a tool can do for you.**
+
+### MCP Servers (use for all build/test/sim operations)
+
+| MCP | Use For |
+|-----|---------|
+| **XcodeBuildMCP** (`mcp__xcode__*`) | Build, test, run, simulator management, build settings, screenshots |
+| **Linear** (`mcp__linear-server__*`) | Track tickets (REC-xxx), update status, create issues |
+| **GitHub** (`mcp__github__*`) | PRs, issues, code search |
+
+### Skills (invoke with Skill tool before implementing)
+
+| Skill | When to Use |
+|-------|-------------|
+| `ios` | iOS code review, SwiftUI patterns, HIG compliance |
+| `swift` | Swift concurrency, performance, modern idioms |
+| `xcode-workflows` | Build system, xcodebuild operations, scheme config |
+| `testing` | TDD workflows, test contracts, test infrastructure |
+| `ios-testing-patterns` | XCTest/XCUITest execution, flaky test detection |
+| `simulator-workflows` | Simulator device/app management with simctl |
+| `crash-debugging` | Crash log analysis, symbolication, root cause |
+| `performance-profiling` | Instruments, CPU/memory/energy profiling |
+| `accessibility-testing` | VoiceOver, Dynamic Type, WCAG compliance |
+| `design` | Liquid Glass, animations, visual design patterns |
+| `security` | Secure storage, biometrics, network security |
+| `release-review` | Pre-release review, App Store readiness |
+| `app-store` | ASO, screenshots, keywords, descriptions |
+
+### Plugins (use agents and code checks)
+
+| Plugin | When to Use |
+|--------|-------------|
+| **codex:rescue** | Second opinion on bugs, deeper investigation, code verification |
+| **feature-dev:code-architect** | Design feature architecture before implementing |
+| **feature-dev:code-reviewer** | Review completed features for bugs and quality |
+| **superpowers:systematic-debugging** | Before proposing fixes for any bug |
+| **superpowers:test-driven-development** | Before writing implementation code |
+| **superpowers:verification-before-completion** | Before claiming work is done |
+
+### Workflow Rules
+
+1. **Before implementing a feature**: Use `feature-dev:code-architect` or `ios` skill
+2. **Before fixing a bug**: Use `superpowers:systematic-debugging` and `crash-debugging` skill
+3. **After writing code**: Use `codex:rescue` for verification, `feature-dev:code-reviewer` for review
+4. **Building/testing**: Always use XcodeBuildMCP, never raw xcodebuild
+5. **Tracking progress**: Update Linear tickets as work completes
+6. **Before merging**: Use `superpowers:verification-before-completion`
+
+### Build Notes
+
+- **Metal Toolchain required**: Install with `xcodebuild -downloadComponent MetalToolchain`
+- **SWIFT_DEFAULT_ACTOR_ISOLATION**: Set to `nonisolated` (changed from `MainActor` to fix test crashes)
+- **iOS 26 SDK**: `SFAcousticFeature.acousticFeatureValuePerFrame` returns `[Double]` not `[NSNumber]`
+- **Test parallelism**: Use `-disable-concurrent-testing` to avoid spawning multiple simulators
+
+---
+
 **Last Updated**: 2026-04-04
 **iOS Target**: 26.0+
 **Swift Version**: 5.0+
