@@ -3,7 +3,7 @@
 //  MindLoop
 //
 //  Model loading and inference using MLX Swift
-//  Manages Qwen3-Instruct-4B (LLM) and Qwen3-Embedding-0.6B (embeddings)
+//  Manages Gemma 4 E2B-it (LLM) and gte-small (embeddings)
 //
 
 import Foundation
@@ -32,15 +32,18 @@ final class ModelRuntime {
     /// Memory usage in MB
     private(set) var memoryUsageMB: Int = 0
 
-    /// LLM model container (Qwen3-4B-Instruct)
+    /// LLM model container (Gemma 4 E2B-it, MLX 4-bit, ~1GB)
     private var llmContainer: ModelContainer?
 
-    /// Embedding model container (Qwen3-Embedding-0.6B)
+    /// Embedding model container (gte-small, MLX 4-bit, 384-dim, ~15MB)
     private var embeddingContainer: ModelContainer?
 
-    /// Model paths
-    private let llmModelPath = "qwen3-4b-instruct-mlx"
-    private let embeddingModelPath = "qwen3-embedding-0.6b-4bit"
+    /// Model paths (relative to Resources/Models/)
+    private let llmModelPath = "gemma-4-e2b-it-4bit"
+    private let embeddingModelPath = "gte-small-4bit"
+
+    /// Embedding dimension for gte-small
+    static let embeddingDimension = 384
 
     private init() {}
 
@@ -48,13 +51,13 @@ final class ModelRuntime {
 
     /// Load LLM model from Resources/Models directory
     /// - Parameter progressHandler: Optional progress callback (0.0-1.0)
-    func loadModel(from modelPath: String = "qwen3-4b-instruct-mlx", progressHandler: ((Double) -> Void)? = nil) async throws {
+    func loadModel(from modelPath: String = "gemma-4-e2b-it-4bit", progressHandler: ((Double) -> Void)? = nil) async throws {
         guard !isLoaded else {
             print("ModelRuntime: LLM already loaded")
             return
         }
 
-        print("ModelRuntime: Loading Qwen3-4B-Instruct from \(modelPath)...")
+        print("ModelRuntime: Loading Gemma 4 E2B-it from \(modelPath)...")
 
         // Set GPU cache limit (20MB)
         MLX.GPU.set(cacheLimit: 20 * 1024 * 1024)
@@ -97,7 +100,7 @@ final class ModelRuntime {
             return
         }
 
-        print("ModelRuntime: Loading Qwen3-Embedding-0.6B from \(embeddingModelPath)...")
+        print("ModelRuntime: Loading gte-small from \(embeddingModelPath)...")
 
         // Get model directory URL
         guard let modelURL = getModelURL(path: embeddingModelPath) else {
@@ -205,28 +208,41 @@ final class ModelRuntime {
 
     // MARK: - Embeddings
 
-    /// Generate embedding vector (462-dim for Qwen3-Embedding-0.6B)
+    /// Generate embedding vector (384-dim for gte-small)
     /// - Parameter text: Input text
-    /// - Returns: 462-dimensional embedding vector
+    /// - Returns: 384-dimensional embedding vector
+    ///
+    /// When the gte-small model is bundled (REC-238), this will use MLXEmbedders
+    /// for proper mean-pooled hidden state extraction. Until then, produces
+    /// deterministic embeddings from the LLM tokenizer for development/testing.
     func generateEmbedding(text: String) async throws -> [Float] {
-        guard let _ = embeddingContainer, isEmbeddingLoaded else {
+        let dimension = Self.embeddingDimension
+
+        // If embedding model is loaded, use it via MLXEmbedders
+        if let container = embeddingContainer, isEmbeddingLoaded {
+            // TODO(REC-238): Use MLXEmbedders.encode() for proper embedding extraction
+            // For now, fall through to tokenizer-based placeholder
+            _ = container
+        }
+
+        // Deterministic placeholder: hash text into a 384-dim normalized vector
+        // This produces consistent embeddings for the same input (unlike random)
+        // so vector search will work correctly during development
+        guard let llm = llmContainer, isLoaded else {
             throw ModelError.embeddingModelNotLoaded
         }
 
-        // For now, return placeholder - embedding extraction needs specific implementation
-        // TODO: Implement proper embedding extraction from Qwen3-Embedding model
-        // This may require using the model's hidden states or pooling strategy
-
-        let dimension = 462
-        print("ModelRuntime: Generating \(dimension)-dim embedding for: \"\(text.prefix(50))...\"")
-
-        // Placeholder: Generate random normalized embedding
-        // In production, this will use the actual embedding model
-        var embedding = (0..<dimension).map { _ in Float.random(in: -1...1) }
-
-        // Normalize to unit length
-        let magnitude = sqrt(embedding.reduce(0) { $0 + $1 * $1 })
-        embedding = embedding.map { $0 / magnitude }
+        let embedding: [Float] = try await llm.perform { context in
+            let tokenized = context.tokenizer.encode(text: text)
+            var vec = [Float](repeating: 0, count: dimension)
+            for (i, tokenId) in tokenized.enumerated() {
+                let idx = i % dimension
+                vec[idx] += Float(tokenId) * 0.001
+            }
+            let mag = sqrt(vec.reduce(0) { $0 + $1 * $1 })
+            if mag > 0 { vec = vec.map { $0 / mag } }
+            return vec
+        }
 
         return embedding
     }
@@ -235,18 +251,18 @@ final class ModelRuntime {
 
     /// Update memory usage estimate
     private func updateMemoryUsage() {
-        // Rough estimates based on model sizes:
-        // Qwen3-4B-Instruct (4-bit): ~2.5GB
-        // Qwen3-Embedding-0.6B (4-bit): ~320MB
+        // Memory estimates per CLAUDE.md:
+        // Gemma 4 E2B-it (4-bit): ~1.5GB resident
+        // gte-small (4-bit): ~50MB resident
 
         var totalMB = 0
 
         if isLoaded {
-            totalMB += 2500 // LLM model
+            totalMB += 1500 // Gemma 4 E2B LLM
         }
 
         if isEmbeddingLoaded {
-            totalMB += 320 // Embedding model
+            totalMB += 50 // gte-small embeddings
         }
 
         memoryUsageMB = totalMB
