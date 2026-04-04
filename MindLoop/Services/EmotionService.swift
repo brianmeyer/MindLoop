@@ -47,24 +47,16 @@ final class NativeEmotionService: EmotionServiceProtocol {
         if let analytics = voiceAnalytics {
             // Pitch (F0) from acousticFeature
             let pitchFeature = analytics.pitch
-            features["pitch_mean"] = pitchFeature.acousticFeatureValuePerFrame
-                .map { Double(truncating: $0) }
-                .mean()
-            features["pitch_std"] = pitchFeature.acousticFeatureValuePerFrame
-                .map { Double(truncating: $0) }
-                .standardDeviation()
+            features["pitch_mean"] = pitchFeature.acousticFeatureValuePerFrame.mean()
+            features["pitch_std"] = pitchFeature.acousticFeatureValuePerFrame.standardDeviation()
 
             // Jitter (pitch perturbation)
             let jitterFeature = analytics.jitter
-            features["jitter"] = jitterFeature.acousticFeatureValuePerFrame
-                .map { Double(truncating: $0) }
-                .mean()
+            features["jitter"] = jitterFeature.acousticFeatureValuePerFrame.mean()
 
             // Shimmer (amplitude perturbation)
             let shimmerFeature = analytics.shimmer
-            features["shimmer"] = shimmerFeature.acousticFeatureValuePerFrame
-                .map { Double(truncating: $0) }
-                .mean()
+            features["shimmer"] = shimmerFeature.acousticFeatureValuePerFrame.mean()
         }
 
         // Extract from SFSpeechRecognitionMetadata (speaking rate, pause duration)
