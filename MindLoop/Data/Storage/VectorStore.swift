@@ -76,7 +76,7 @@ final class VectorStore: Sendable {
             for row in rows {
                 let chunkId: String = row["id"]
                 let parentId: String = row["parentEntryId"]
-                let timestamp: Double = row["timestamp"]
+                let entryTimestamp: Date = row["timestamp"]
 
                 guard let embeddingData: Data = row["embedding"] else { continue }
                 let vector = Self.dataToVector(embeddingData)
@@ -84,7 +84,7 @@ final class VectorStore: Sendable {
 
                 let normalizedVector = Self.normalize(vector)
                 let similarity = Self.cosineSimilarity(normalizedQuery, normalizedVector)
-                chunkResults.append((chunkId, parentId, similarity, timestamp))
+                chunkResults.append((chunkId, parentId, similarity, entryTimestamp.timeIntervalSince1970))
             }
 
             // Sort by similarity, take top chunkK

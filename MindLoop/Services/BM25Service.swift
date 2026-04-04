@@ -62,7 +62,8 @@ final class BM25Service: Sendable {
             for row in rows {
                 let entryId: String = row["id"]
                 let bm25Score: Double = row["bm25_score"]
-                let timestamp: Double = row["timestamp"]
+                let entryTimestamp: Date = row["timestamp"]
+                let timestamp = entryTimestamp.timeIntervalSince1970
 
                 let normalizedBM25 = 1.0 / (1.0 + abs(bm25Score))
                 let ageInDays = (now - timestamp) / 86400.0
@@ -95,7 +96,8 @@ final class BM25Service: Sendable {
 
             return rows.map { row in
                 let entryId: String = row["id"]
-                let timestamp: Double = row["timestamp"]
+                let entryTimestamp: Date = row["timestamp"]
+                let timestamp = entryTimestamp.timeIntervalSince1970
                 let confidence: Double = row["emotionConfidence"]
 
                 let ageInDays = (now - timestamp) / 86400.0
