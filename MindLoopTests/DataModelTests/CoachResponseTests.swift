@@ -175,19 +175,19 @@ struct CoachResponseTests {
     
     @Test("CoachResponse CBT states have correct display names")
     func testCBTStateDisplayNames() {
-        #expect(CoachResponse.CBTState.goal.displayName == "Goal Setting")
-        #expect(CoachResponse.CBTState.situation.displayName == "Situation")
-        #expect(CoachResponse.CBTState.thoughts.displayName == "Thoughts")
-        #expect(CoachResponse.CBTState.feelings.displayName == "Feelings")
-        #expect(CoachResponse.CBTState.distortions.displayName == "Distortions")
-        #expect(CoachResponse.CBTState.reframe.displayName == "Reframe")
-        #expect(CoachResponse.CBTState.action.displayName == "Action")
-        #expect(CoachResponse.CBTState.reflect.displayName == "Reflect")
+        #expect(CBTState.goal.displayName == "Goal Setting")
+        #expect(CBTState.situation.displayName == "Situation")
+        #expect(CBTState.thoughts.displayName == "Thoughts")
+        #expect(CBTState.feelings.displayName == "Feelings")
+        #expect(CBTState.distortions.displayName == "Distortions")
+        #expect(CBTState.reframe.displayName == "Reframe")
+        #expect(CBTState.action.displayName == "Action")
+        #expect(CBTState.reflect.displayName == "Reflect")
     }
     
     @Test("CoachResponse CBT states have prompt guides")
     func testCBTStatePromptGuides() {
-        for state in CoachResponse.CBTState.allCases {
+        for state in CBTState.allCases {
             #expect(!state.promptGuide.isEmpty)
             #expect(state.promptGuide.contains("?") || state.promptGuide.contains("..."))
         }

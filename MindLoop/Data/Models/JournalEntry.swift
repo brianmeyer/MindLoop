@@ -9,7 +9,7 @@
 import Foundation
 
 /// A journal entry with text, emotion analysis, and vector embeddings
-struct JournalEntry: Codable, Identifiable, Equatable {
+struct JournalEntry: Codable, Identifiable, Equatable, Sendable {
     // MARK: - Properties
 
     /// Unique identifier for the entry
@@ -24,10 +24,6 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     /// Emotion signal from hybrid analysis (prosody + text sentiment)
     let emotion: EmotionSignal
 
-    /// Vector embedding for semantic search (462-dim from Qwen3-Embedding-0.6B)
-    /// Stored as array of floats for SQLite compatibility
-    let embeddings: [Float]?
-
     /// Extracted topics/keywords for filtering and trends
     let tags: [String]
 
@@ -38,26 +34,13 @@ struct JournalEntry: Codable, Identifiable, Equatable {
         timestamp: Date = Date(),
         text: String,
         emotion: EmotionSignal,
-        embeddings: [Float]? = nil,
         tags: [String] = []
     ) {
         self.id = id
         self.timestamp = timestamp
         self.text = text
         self.emotion = emotion
-        self.embeddings = embeddings
         self.tags = tags
-    }
-
-    // MARK: - Codable
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case timestamp
-        case text
-        case emotion
-        case embeddings
-        case tags
     }
 
     // MARK: - Computed Properties
@@ -92,10 +75,6 @@ struct JournalEntry: Codable, Identifiable, Equatable {
             .count
     }
 
-    /// Indicates if embeddings have been computed
-    var hasEmbeddings: Bool {
-        embeddings != nil && !(embeddings?.isEmpty ?? true)
-    }
 }
 
 // MARK: - Sample Data
@@ -113,7 +92,7 @@ extension JournalEntry {
             arousal: 0.6,
             prosodyFeatures: [:]
         ),
-        embeddings: nil,
+
         tags: ["work", "stress", "presentation"]
     )
 
@@ -129,7 +108,7 @@ extension JournalEntry {
             arousal: 0.3,
             prosodyFeatures: [:]
         ),
-        embeddings: nil,
+
         tags: ["gratitude", "friendship", "connection"]
     )
 
@@ -145,7 +124,7 @@ extension JournalEntry {
             arousal: 0.1,
             prosodyFeatures: [:]
         ),
-        embeddings: nil,
+
         tags: ["work", "routine"]
     )
 }

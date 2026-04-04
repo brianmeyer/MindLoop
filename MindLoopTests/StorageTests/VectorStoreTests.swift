@@ -78,6 +78,7 @@ struct VectorStoreTests {
             tokenCount: 5
         )
 
+        // 462 = old Qwen3-Embedding-0.6B dimension, should be rejected (gte-small is 384)
         let wrongDim = [Float](repeating: 0.1, count: 462)
         #expect(throws: VectorStore.VectorStoreError.self) {
             try store.storeChunkEmbedding(chunk: chunk, vector: wrongDim)

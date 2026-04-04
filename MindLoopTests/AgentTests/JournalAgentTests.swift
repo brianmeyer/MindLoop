@@ -223,11 +223,6 @@ struct JournalAgentTests {
         #expect(entry.emotion.arousal == emotion.arousal)
     }
 
-    @Test func entryHasNilEmbeddings() {
-        let entry = agent.normalize(text: "Test entry", emotion: .sampleNeutral)
-        #expect(entry.embeddings == nil)
-    }
-
     @Test func twoEntriesHaveDifferentIDs() {
         let entry1 = agent.normalize(text: "First", emotion: .sampleNeutral)
         let entry2 = agent.normalize(text: "Second", emotion: .sampleNeutral)

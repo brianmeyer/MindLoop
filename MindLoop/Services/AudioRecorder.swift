@@ -12,7 +12,7 @@ import AVFoundation
 /// Audio recording service with amplitude monitoring
 @MainActor
 @Observable
-class AudioRecorder: NSObject {
+final class AudioRecorder: NSObject {
     // MARK: - Properties
 
     /// Current recording state
@@ -49,7 +49,10 @@ class AudioRecorder: NSObject {
         ]
 
         // Create recorder
-        audioRecorder = try AVAudioRecorder(url: recordingURL!, settings: settings)
+        guard let url = recordingURL else {
+            throw NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Recording URL not set"])
+        }
+        audioRecorder = try AVAudioRecorder(url: url, settings: settings)
         audioRecorder?.delegate = self
         audioRecorder?.isMeteringEnabled = true
         audioRecorder?.prepareToRecord()

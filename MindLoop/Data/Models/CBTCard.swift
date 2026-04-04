@@ -9,7 +9,7 @@
 import Foundation
 
 /// A reusable CBT technique card with examples
-struct CBTCard: Codable, Identifiable, Equatable {
+struct CBTCard: Codable, Identifiable, Equatable, Sendable {
     // MARK: - Properties
 
     /// Unique identifier for the card

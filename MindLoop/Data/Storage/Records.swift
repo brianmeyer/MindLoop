@@ -11,7 +11,7 @@ import GRDB
 
 // MARK: - JournalEntryRecord
 
-/// GRDB record for journal_entries table
+/// GRDB record for journalEntry table
 struct JournalEntryRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     static let databaseTableName = "journalEntry"
 
@@ -53,7 +53,6 @@ struct JournalEntryRecord: Codable, FetchableRecord, PersistableRecord, Sendable
             timestamp: timestamp,
             text: text,
             emotion: emotion,
-            embeddings: nil,
             tags: Self.decodeTags(tags)
         )
     }
@@ -81,7 +80,7 @@ struct JournalEntryRecord: Codable, FetchableRecord, PersistableRecord, Sendable
 
 // MARK: - SemanticChunkRecord
 
-/// GRDB record for semantic_chunks table
+/// GRDB record for semanticChunk table
 struct SemanticChunkRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     static let databaseTableName = "semanticChunk"
 
@@ -139,7 +138,7 @@ struct SemanticChunkRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
 
 // MARK: - PersonalizationProfileRecord
 
-/// GRDB record for personalization_profile table
+/// GRDB record for personalizationProfile table
 struct PersonalizationProfileRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     static let databaseTableName = "personalizationProfile"
 

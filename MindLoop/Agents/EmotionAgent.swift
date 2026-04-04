@@ -128,7 +128,9 @@ struct EmotionAgent {
             (.sad, sadCount)
         ]
 
-        let dominant = scores.max { $0.1 < $1.1 }!
+        guard let dominant = scores.max(by: { $0.1 < $1.1 }) else {
+            return (.neutral, 0.0)
+        }
 
         // Confidence based on keyword density (capped at 1.0)
         let density = Double(dominant.1) / Double(words.count)
@@ -183,7 +185,9 @@ struct EmotionAgent {
             (.positive, positiveScore)
         ]
 
-        let dominant = scores.max { $0.1 < $1.1 }!
+        guard let dominant = scores.max(by: { $0.1 < $1.1 }) else {
+            return (.neutral, 0.0)
+        }
 
         // Require a minimum score to classify as non-neutral
         guard dominant.1 >= 0.5 else {

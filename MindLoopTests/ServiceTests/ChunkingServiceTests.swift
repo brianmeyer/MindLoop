@@ -15,7 +15,7 @@ struct ChunkingServiceTests {
             timestamp: Date(),
             text: "Today was a good day. I felt productive and accomplished several tasks. My mood improved throughout the afternoon.",
             emotion: .samplePositive,
-            embeddings: nil,
+
             tags: ["positive", "work"]
         )
 
@@ -47,7 +47,7 @@ struct ChunkingServiceTests {
             timestamp: Date(),
             text: longText,
             emotion: .sampleAnxious,
-            embeddings: nil,
+
             tags: ["long"]
         )
 
@@ -119,7 +119,7 @@ struct ChunkingServiceTests {
                     "speaking_rate": 1.3
                 ]
             ),
-            embeddings: nil,
+
             tags: ["anxiety"]
         )
 
@@ -155,7 +155,7 @@ struct ChunkingServiceTests {
             timestamp: Date(),
             text: text,
             emotion: .sampleNeutral,
-            embeddings: nil,
+
             tags: ["work"]
         )
 
@@ -189,7 +189,7 @@ struct ChunkingServiceTests {
             timestamp: Date(),
             text: "",
             emotion: .sampleNeutral,
-            embeddings: nil,
+
             tags: []
         )
 
@@ -211,7 +211,7 @@ struct ChunkingServiceTests {
             timestamp: Date(),
             text: longSentence,
             emotion: .sampleNeutral,
-            embeddings: nil,
+
             tags: []
         )
 
@@ -245,7 +245,7 @@ struct ChunkingServiceTests {
             timestamp: Date(),
             text: longText,
             emotion: .sampleNeutral,
-            embeddings: nil,
+
             tags: []
         )
 
@@ -275,7 +275,7 @@ struct ChunkingServiceTests {
             timestamp: Date(),
             text: originalText,
             emotion: .samplePositive,
-            embeddings: nil,
+
             tags: ["gratitude"]
         )
 

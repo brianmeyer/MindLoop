@@ -22,14 +22,14 @@ struct FixtureGenerator {
             let timestamp = now.addingTimeInterval(-daysAgo * 86400)
             
             // Select a random template
-            let template = templates.randomElement()!
+            guard let template = templates.randomElement() else { continue }
             
             let entry = JournalEntry(
                 id: UUID().uuidString,
                 timestamp: timestamp,
                 text: template.text,
                 emotion: template.emotion,
-                embeddings: nil, // Will be generated in Phase 2
+                // Embeddings live on SemanticChunk, not JournalEntry
                 tags: template.tags
             )
             

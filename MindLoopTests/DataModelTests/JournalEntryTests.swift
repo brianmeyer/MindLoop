@@ -39,7 +39,6 @@ struct JournalEntryTests {
         )
         
         #expect(!entry.id.isEmpty)
-        #expect(entry.embeddings == nil)
         #expect(entry.tags.isEmpty)
         #expect(entry.text == "Test entry")
     }
@@ -81,30 +80,6 @@ struct JournalEntryTests {
             emotion: EmotionSignal.sampleNeutral
         )
         #expect(entry3.wordCount == 0)
-    }
-    
-    @Test("JournalEntry hasEmbeddings property works correctly")
-    func testHasEmbeddings() {
-        let entryWithout = JournalEntry(
-            text: "Test",
-            emotion: EmotionSignal.sampleNeutral,
-            embeddings: nil
-        )
-        #expect(!entryWithout.hasEmbeddings)
-        
-        let entryEmpty = JournalEntry(
-            text: "Test",
-            emotion: EmotionSignal.sampleNeutral,
-            embeddings: []
-        )
-        #expect(!entryEmpty.hasEmbeddings)
-        
-        let entryWith = JournalEntry(
-            text: "Test",
-            emotion: EmotionSignal.sampleNeutral,
-            embeddings: [0.1, 0.2, 0.3]
-        )
-        #expect(entryWith.hasEmbeddings)
     }
     
     @Test("JournalEntry formatted date is readable")

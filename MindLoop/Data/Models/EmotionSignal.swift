@@ -9,7 +9,7 @@
 import Foundation
 
 /// Emotion signal from hybrid analysis (text sentiment + prosody features)
-struct EmotionSignal: Codable, Equatable {
+struct EmotionSignal: Codable, Equatable, Sendable {
     // MARK: - Emotion Label
 
     /// Primary emotion category

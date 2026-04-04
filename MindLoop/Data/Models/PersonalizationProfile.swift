@@ -9,7 +9,7 @@
 import Foundation
 
 /// User personalization profile for adaptive coaching
-struct PersonalizationProfile: Codable, Equatable {
+struct PersonalizationProfile: Codable, Equatable, Sendable {
     // MARK: - Properties
 
     /// Unique identifier (typically user ID or "default")

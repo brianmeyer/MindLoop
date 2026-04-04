@@ -231,31 +231,6 @@ extension AppDatabase {
         }
     }
 
-    /// Vector similarity search — brute force cosine similarity via SQL
-    /// This will be replaced by sqlite-vec virtual table queries in a follow-up
-    func findSimilarChunks(to query: [Float], k: Int = 10) throws -> [SemanticChunkRecord] {
-        try dbQueue.read { db in
-            // For now, fetch all chunks with embeddings and compute in Swift
-            // sqlite-vec integration will replace this with a single SQL query
-            let chunks = try SemanticChunkRecord
-                .filter(Column("embedding") != nil)
-                .fetchAll(db)
-
-            // Compute cosine similarity in Swift
-            let scored = chunks.compactMap { chunk -> (SemanticChunkRecord, Float)? in
-                guard let embedding = chunk.embedding else { return nil }
-                let vec = embeddingFromBlob(embedding)
-                guard vec.count == query.count else { return nil }
-                let sim = cosineSimilarity(query, vec)
-                return (chunk, sim)
-            }
-
-            return scored
-                .sorted { $0.1 > $1.1 }
-                .prefix(k)
-                .map(\.0)
-        }
-    }
 }
 
 // MARK: - Personalization Profile Operations
@@ -281,23 +256,3 @@ extension AppDatabase {
     }
 }
 
-// MARK: - Helpers
-
-private func embeddingFromBlob(_ data: Data) -> [Float] {
-    data.withUnsafeBytes { buffer in
-        Array(buffer.bindMemory(to: Float.self))
-    }
-}
-
-private func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
-    var dot: Float = 0
-    var normA: Float = 0
-    var normB: Float = 0
-    for i in 0..<a.count {
-        dot += a[i] * b[i]
-        normA += a[i] * a[i]
-        normB += b[i] * b[i]
-    }
-    let denom = sqrt(normA) * sqrt(normB)
-    return denom > 0 ? dot / denom : 0
-}
