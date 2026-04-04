@@ -252,17 +252,17 @@ final class ModelRuntime {
     /// Update memory usage estimate
     private func updateMemoryUsage() {
         // Memory estimates per CLAUDE.md:
-        // Gemma 4 E2B-it (4-bit): ~1.5GB resident
-        // bge-small-en-v1.5: ~35MB resident
+        // Gemma 4 E2B-it (4-bit): ~3.3GB on disk, ~2.5GB resident
+        // bge-small-en-v1.5 (fp32): ~383MB on disk, ~130MB resident
 
         var totalMB = 0
 
         if isLoaded {
-            totalMB += 1500 // Gemma 4 E2B LLM
+            totalMB += 2500 // Gemma 4 E2B LLM (4-bit)
         }
 
         if isEmbeddingLoaded {
-            totalMB += 35 // bge-small-en-v1.5 embeddings
+            totalMB += 130 // bge-small-en-v1.5 embeddings (fp32)
         }
 
         memoryUsageMB = totalMB
