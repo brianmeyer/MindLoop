@@ -14,16 +14,35 @@ struct CoachResponseTests {
     
     @Test("CoachResponse encodes and decodes correctly")
     func testCodable() throws {
-        let response = CoachResponse.sample
-        
+        // Use a fixed whole-second Date to avoid ISO 8601 sub-second precision loss
+        let fixedDate = Date(timeIntervalSince1970: 1700000000)
+        let response = CoachResponse(
+            id: "response-1",
+            text: "I hear that you're feeling stressed about tomorrow's presentation. It sounds like you're caught in some catastrophizing—imagining worst-case scenarios. Let's pause and look at the evidence: What preparation have you already done? What past presentations went well?",
+            timestamp: fixedDate,
+            citedEntries: ["sample-1"],
+            suggestedAction: "Take 5 minutes to list 3 things you've prepared well for this presentation.",
+            nextState: .reframe,
+            metadata: CoachResponse.ResponseMetadata(
+                tokenCount: 95,
+                latencyMs: 1850,
+                model: "gemma-4-e2b-it-4bit",
+                loraAdapter: "tone-warm",
+                retrievalContext: CoachResponse.ResponseMetadata.RetrievalContext(
+                    entryCount: 3,
+                    cardId: "card_reframing"
+                )
+            )
+        )
+
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(response)
-        
+
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(CoachResponse.self, from: data)
-        
+
         #expect(decoded == response)
         #expect(decoded.id == response.id)
         #expect(decoded.text == response.text)

@@ -35,14 +35,14 @@ final class ModelRuntime {
     /// LLM model container (Gemma 4 E2B-it, MLX 4-bit, ~1GB)
     private var llmContainer: ModelContainer?
 
-    /// Embedding model container (gte-small, MLX 4-bit, 384-dim, ~15MB)
+    /// Embedding model container (bge-small-en-v1.5, 384-dim, ~35MB, MTEB 58.6)
     private var embeddingContainer: ModelContainer?
 
     /// Model paths (relative to Resources/Models/)
     private let llmModelPath = "gemma-4-e2b-it-4bit"
-    private let embeddingModelPath = "gte-small-4bit"
+    private let embeddingModelPath = "bge-small-en-v1.5"
 
-    /// Embedding dimension for gte-small
+    /// Embedding dimension for bge-small-en-v1.5
     static let embeddingDimension = 384
 
     private init() {}
@@ -100,7 +100,7 @@ final class ModelRuntime {
             return
         }
 
-        print("ModelRuntime: Loading gte-small from \(embeddingModelPath)...")
+        print("ModelRuntime: Loading bge-small-en-v1.5 from \(embeddingModelPath)...")
 
         // Get model directory URL
         guard let modelURL = getModelURL(path: embeddingModelPath) else {
@@ -208,7 +208,7 @@ final class ModelRuntime {
 
     // MARK: - Embeddings
 
-    /// Generate embedding vector (384-dim for gte-small)
+    /// Generate embedding vector (384-dim for bge-small-en-v1.5)
     /// - Parameter text: Input text
     /// - Returns: 384-dimensional embedding vector
     ///
@@ -253,7 +253,7 @@ final class ModelRuntime {
     private func updateMemoryUsage() {
         // Memory estimates per CLAUDE.md:
         // Gemma 4 E2B-it (4-bit): ~1.5GB resident
-        // gte-small (4-bit): ~50MB resident
+        // bge-small-en-v1.5: ~35MB resident
 
         var totalMB = 0
 
@@ -262,7 +262,7 @@ final class ModelRuntime {
         }
 
         if isEmbeddingLoaded {
-            totalMB += 50 // gte-small embeddings
+            totalMB += 35 // bge-small-en-v1.5 embeddings
         }
 
         memoryUsageMB = totalMB

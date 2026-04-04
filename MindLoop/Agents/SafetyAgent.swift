@@ -24,6 +24,7 @@ struct SafetyAgent {
         "suicide": [
             "kill myself",
             "end it all",
+            "ending it all",
             "not worth living",
             "suicide",
             "suicidal",

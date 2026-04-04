@@ -14,16 +14,26 @@ struct PersonalizationProfileTests {
     
     @Test("PersonalizationProfile encodes and decodes correctly")
     func testCodable() throws {
-        let profile = PersonalizationProfile.sampleCustomized
-        
+        // Use a fixed whole-second Date to avoid ISO 8601 sub-second precision loss
+        let fixedDate = Date(timeIntervalSince1970: 1700000000)
+        let profile = PersonalizationProfile(
+            id: "user-123",
+            lastUpdated: fixedDate,
+            tonePref: .direct,
+            responseLength: .short,
+            emotionTriggers: ["work_stress", "sleep_rumination", "social_anxiety"],
+            avoidTopics: ["family", "health"],
+            preferredActions: [.reframing, .behavioralActivation, .mindfulness]
+        )
+
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(profile)
-        
+
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(PersonalizationProfile.self, from: data)
-        
+
         #expect(decoded == profile)
         #expect(decoded.id == profile.id)
         #expect(decoded.tonePref == profile.tonePref)

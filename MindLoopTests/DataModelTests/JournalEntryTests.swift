@@ -14,16 +14,30 @@ struct JournalEntryTests {
     
     @Test("JournalEntry encodes and decodes correctly")
     func testCodable() throws {
-        let entry = JournalEntry.sample
-        
+        // Use a fixed whole-second Date to avoid ISO 8601 sub-second precision loss
+        let fixedDate = Date(timeIntervalSince1970: 1700000000)
+        let entry = JournalEntry(
+            id: "sample-1",
+            timestamp: fixedDate,
+            text: "I'm feeling stressed about the presentation tomorrow. I keep thinking about all the things that could go wrong.",
+            emotion: EmotionSignal(
+                label: .anxious,
+                confidence: 0.78,
+                valence: -0.4,
+                arousal: 0.6,
+                prosodyFeatures: [:]
+            ),
+            tags: ["work", "stress", "presentation"]
+        )
+
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(entry)
-        
+
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(JournalEntry.self, from: data)
-        
+
         #expect(decoded == entry)
         #expect(decoded.id == entry.id)
         #expect(decoded.text == entry.text)

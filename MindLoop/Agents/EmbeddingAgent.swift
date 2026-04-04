@@ -2,13 +2,13 @@
 //  EmbeddingAgent.swift
 //  MindLoop
 //
-//  Embedding generation using gte-small (384-dim, <50ms latency)
+//  Embedding generation using bge-small-en-v1.5 (384-dim, <50ms latency, MTEB 58.6)
 //  Chunk-aware: splits long entries at emotion boundaries via ChunkingService
 //
 
 import Foundation
 
-/// Embedding generation agent using gte-small via MLX
+/// Embedding generation agent using bge-small-en-v1.5 via MLXEmbedders
 final class EmbeddingAgent {
     // MARK: - Properties
 
@@ -21,7 +21,7 @@ final class EmbeddingAgent {
 
     // MARK: - Embedding Generation
 
-    /// Generate embedding using gte-small (<50ms target)
+    /// Generate embedding using bge-small-en-v1.5 (<50ms target, 384-dim)
     /// - Parameter text: Input text
     /// - Returns: 384-dimensional embedding vector
     func generate(text: String) async throws -> [Float] {
