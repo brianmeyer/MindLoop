@@ -169,9 +169,7 @@ struct OrchestratorCBTStateTests {
         #expect(firstState != .goal, "State should advance from goal after first input")
 
         // Second input: advances further
-        let secondInitialState = orchestrator.cbtState
         await orchestrator.processText("It happened during a meeting with my boss.")
-        let secondState = orchestrator.cbtState
         // State may or may not advance depending on coach response, but pipeline completes
         #expect(orchestrator.currentResponse != nil)
         #expect(orchestrator.pipelineState == .idle)
