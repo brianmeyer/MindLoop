@@ -72,3 +72,4 @@ playground.xcworkspace
 **/*.safetensors
 **/Models/qwen*/
 !**/Models/.gitkeep
+.claude/
