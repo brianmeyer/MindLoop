@@ -18,9 +18,10 @@ struct HomeScreen: View {
 
     // MARK: - State
 
-    @State private var greeting: String = "Good evening, Alex"
+    @State private var greeting: String = "Good evening"
     @State private var streak: Int = 7
     @State private var moodValue: Double = 0.5
+    @State private var userName: String = ""
 
     // Button press states for scale animations
     @State private var isHistoryPressed = false
@@ -63,6 +64,37 @@ struct HomeScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("Background"))
+        .task { refreshGreeting() }
+        .onAppear { refreshGreeting() }
+    }
+
+    /// Build the greeting from the time of day and the user's name from
+    /// PersonalizationProfile. Falls back to no-name if profile is empty.
+    private func refreshGreeting() {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let timeOfDay: String
+        switch hour {
+        case 5..<12:  timeOfDay = "Good morning"
+        case 12..<17: timeOfDay = "Good afternoon"
+        case 17..<22: timeOfDay = "Good evening"
+        default:      timeOfDay = "Hi there"
+        }
+
+        // Load userName directly from the DB record — the domain
+        // PersonalizationProfile doesn't surface userName today.
+        let loadedName: String
+        if let record = try? AppDatabase.shared.fetchProfile() {
+            loadedName = record.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            loadedName = ""
+        }
+        userName = loadedName
+
+        if loadedName.isEmpty {
+            greeting = timeOfDay
+        } else {
+            greeting = "\(timeOfDay), \(loadedName)"
+        }
     }
 
     // MARK: - Header
