@@ -66,16 +66,25 @@ struct MindLoopApp: App {
         // Skip model loading on simulator
         isModelWarmedUp = true
         #else
+        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.mindloop", category: "App")
         do {
+            // Load the big LLM first (bulk of warmup time).
             try await ModelRuntime.shared.loadModel(
                 from: modelDownloader.modelDirectoryURL
             ) { progress in
                 warmUpProgress = progress
             }
+            // Load the bundled bge-small-en-v1.5 embedder (~19 MB, <1s).
+            // Failure here is non-fatal — retrieval just won't have semantic
+            // embeddings until the next launch. (REC-289)
+            do {
+                try await ModelRuntime.shared.loadEmbeddingModel()
+            } catch {
+                logger.error("Embedding model warm-up failed: \(error.localizedDescription)")
+            }
             isModelWarmedUp = true
         } catch {
-            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.mindloop", category: "App")
-                .error("Model warm-up failed: \(error.localizedDescription)")
+            logger.error("Model warm-up failed: \(error.localizedDescription)")
             // Still show the app — features will degrade gracefully
             isModelWarmedUp = true
         }

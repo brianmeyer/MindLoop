@@ -7,12 +7,21 @@
 //
 
 import Foundation
+import Observation
+import os
+
+#if !targetEnvironment(simulator)
 import MLX
 import MLXLLM
 import MLXLMCommon
-import MLXRandom
-import Observation
-import Tokenizers
+import MLXEmbedders
+// `@preconcurrency` suppresses Sendable warnings from the HuggingFace
+// swift-transformers Tokenizer types we bridge into `MLXLMCommon.Tokenizer`.
+// Under Swift 6 the upstream `any Tokenizer` is non-Sendable, but our
+// TokenizerBridge is only read from `@MainActor`-isolated code and the MLX
+// ModelContainer's internal isolated queue.
+@preconcurrency import Tokenizers
+#endif
 
 /// Model runtime for LLM and embedding inference
 @MainActor
@@ -29,18 +38,28 @@ final class ModelRuntime {
     /// Embedding model loaded state
     private(set) var isEmbeddingLoaded = false
 
+    /// Whether the user chose to skip model loading
+    private(set) var skippedModelLoad = false
+
     /// Memory usage in MB
     private(set) var memoryUsageMB: Int = 0
 
+    #if !targetEnvironment(simulator)
     /// LLM model container (Gemma 4 E2B-it, MLX 4-bit, ~1GB)
-    private var llmContainer: ModelContainer?
+    private var llmContainer: MLXLMCommon.ModelContainer?
 
-    /// Embedding model container (bge-small-en-v1.5, 384-dim, ~35MB, MTEB 58.6)
-    private var embeddingContainer: ModelContainer?
+    /// Embedding model container (bge-small-en-v1.5, 384-dim, ~19MB)
+    private var embeddingContainer: MLXEmbedders.ModelContainer?
+    #endif
 
-    /// Model paths (relative to Resources/Models/)
+    /// Model paths
     private let llmModelPath = "gemma-4-e2b-it-4bit"
-    private let embeddingModelPath = "bge-small-en-v1.5"
+    private let embeddingModelPath = "bge-small-en-v1.5-4bit"
+
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.mindloop",
+        category: "ModelRuntime"
+    )
 
     /// Embedding dimension for bge-small-en-v1.5
     static let embeddingDimension = 384
@@ -49,40 +68,52 @@ final class ModelRuntime {
 
     // MARK: - Model Loading
 
-    /// Load LLM model from Resources/Models directory
-    /// - Parameter progressHandler: Optional progress callback (0.0-1.0)
-    func loadModel(from modelPath: String = "gemma-4-e2b-it-4bit", progressHandler: ((Double) -> Void)? = nil) async throws {
+    /// Load LLM model from a directory URL or Bundle fallback.
+    /// - Parameters:
+    ///   - modelDirectoryURL: Optional directory URL containing model files (e.g. from ModelDownloader).
+    ///     When nil, falls back to Bundle.main/Resources/Models/.
+    ///   - modelPath: Model subdirectory name (used for Bundle fallback).
+    ///   - progressHandler: Optional progress callback (0.0-1.0).
+    func loadModel(
+        from modelDirectoryURL: URL? = nil,
+        modelPath: String = "gemma-4-e2b-it-4bit",
+        progressHandler: ((Double) -> Void)? = nil
+    ) async throws {
+        #if targetEnvironment(simulator)
+        Self.logger.info("LLM loading skipped on simulator")
+        isLoaded = true
+        progressHandler?(1.0)
+        return
+        #else
         guard !isLoaded else {
-            print("ModelRuntime: LLM already loaded")
+            Self.logger.info("LLM already loaded")
             return
         }
 
-        print("ModelRuntime: Loading Gemma 4 E2B-it from \(modelPath)...")
-
-        // Set GPU cache limit (20MB)
-        MLX.GPU.set(cacheLimit: 20 * 1024 * 1024)
-
-        // Get model directory URL
-        guard let modelURL = getModelURL(path: modelPath) else {
+        // Resolve model directory: explicit URL > Bundle fallback
+        let modelURL: URL
+        if let directoryURL = modelDirectoryURL {
+            modelURL = directoryURL
+        } else if let bundleURL = getModelURL(path: modelPath) {
+            modelURL = bundleURL
+        } else {
             throw ModelError.modelNotFound(path: modelPath)
         }
 
+        Self.logger.info("Loading Gemma 4 E2B-it from \(modelURL.path)")
+
+        // Set GPU cache limit (20MB) — updated API per mlx-swift docs.
+        MLX.Memory.cacheLimit = 20 * 1024 * 1024
+
         let startTime = Date()
 
-        // Create configuration for local model directory
-        // Try using the local path as the model ID
-        let configuration = ModelConfiguration(
-            id: modelURL.path,
-            defaultPrompt: "You are a helpful assistant."
+        // Load model from local directory. Fully qualified to disambiguate
+        // from MLXEmbedders.loadModelContainer (same name, different container).
+        let container = try await MLXLMCommon.loadModelContainer(
+            from: modelURL,
+            using: HuggingFaceTokenizerLoader()
         )
-
-        // Load model from local directory
-        llmContainer = try await LLMModelFactory.shared.loadContainer(
-            configuration: configuration
-        ) { progress in
-            progressHandler?(progress.fractionCompleted)
-            print("ModelRuntime: Loading... \(Int(progress.fractionCompleted * 100))%")
-        }
+        llmContainer = container
 
         let loadTime = Date().timeIntervalSince(startTime)
         isLoaded = true
@@ -90,46 +121,48 @@ final class ModelRuntime {
         // Update memory usage
         updateMemoryUsage()
 
-        print("ModelRuntime: LLM loaded in \(String(format: "%.2f", loadTime))s, memory: \(memoryUsageMB)MB")
+        Self.logger.info("LLM loaded in \(String(format: "%.2f", loadTime))s, memory: \(self.memoryUsageMB)MB")
+        #endif
     }
 
-    /// Load embedding model
+    /// Load the bge-small-en-v1.5 embedding model bundled in the app.
+    ///
+    /// Uses `MLXEmbedders.loadModelContainer(from:using:)` with the existing
+    /// `HuggingFaceTokenizerLoader`. The 4-bit bge-small model is ~19MB on
+    /// disk and produces 384-dim L2-normalized embeddings. (REC-289)
     func loadEmbeddingModel(progressHandler: ((Double) -> Void)? = nil) async throws {
+        #if targetEnvironment(simulator)
+        Self.logger.info("Embedding model loading skipped on simulator")
+        isEmbeddingLoaded = true
+        progressHandler?(1.0)
+        return
+        #else
         guard !isEmbeddingLoaded else {
-            print("ModelRuntime: Embedding model already loaded")
+            Self.logger.info("Embedding model already loaded")
             return
         }
 
-        print("ModelRuntime: Loading bge-small-en-v1.5 from \(embeddingModelPath)...")
-
-        // Get model directory URL
         guard let modelURL = getModelURL(path: embeddingModelPath) else {
             throw ModelError.modelNotFound(path: embeddingModelPath)
         }
 
+        Self.logger.info("Loading bge-small-en-v1.5-4bit from \(modelURL.path)")
         let startTime = Date()
 
-        // Create configuration for local embedding model directory
-        let configuration = ModelConfiguration(
-            id: modelURL.path,
-            defaultPrompt: "" // Embedding models don't need prompts
+        // Fully qualified to disambiguate from MLXLMCommon.loadModelContainer.
+        let container = try await MLXEmbedders.loadModelContainer(
+            from: modelURL,
+            using: HuggingFaceTokenizerLoader()
         )
+        embeddingContainer = container
 
-        // Load embedding model
-        embeddingContainer = try await LLMModelFactory.shared.loadContainer(
-            configuration: configuration
-        ) { progress in
-            progressHandler?(progress.fractionCompleted)
-            print("ModelRuntime: Loading embedding... \(Int(progress.fractionCompleted * 100))%")
-        }
+        isEmbeddingLoaded = true
+        updateMemoryUsage()
+        progressHandler?(1.0)
 
         let loadTime = Date().timeIntervalSince(startTime)
-        isEmbeddingLoaded = true
-
-        // Update memory usage
-        updateMemoryUsage()
-
-        print("ModelRuntime: Embedding model loaded in \(String(format: "%.2f", loadTime))s, memory: \(memoryUsageMB)MB")
+        Self.logger.info("Embedding model loaded in \(String(format: "%.2f", loadTime))s")
+        #endif
     }
 
     // MARK: - Text Generation
@@ -145,10 +178,16 @@ final class ModelRuntime {
         maxTokens: Int = 120,
         temperature: Float = 0.7
     ) -> AsyncStream<String> {
-        AsyncStream { continuation in
+        #if targetEnvironment(simulator)
+        return AsyncStream { continuation in
+            continuation.yield("[Simulator stub] Response to: \(prompt.prefix(50))")
+            continuation.finish()
+        }
+        #else
+        return AsyncStream { continuation in
             Task {
                 guard let container = llmContainer, isLoaded else {
-                    print("ModelRuntime: LLM not loaded")
+                    Self.logger.warning("LLM not loaded")
                     continuation.finish()
                     return
                 }
@@ -169,7 +208,7 @@ final class ModelRuntime {
                             context: context
                         ) { tokens in
                             // Decode tokens to text
-                            let text = context.tokenizer.decode(tokens: tokens)
+                            let text = context.tokenizer.decode(tokenIds: tokens)
 
                             // Yield token
                             continuation.yield(text)
@@ -184,11 +223,12 @@ final class ModelRuntime {
 
                     continuation.finish()
                 } catch {
-                    print("ModelRuntime: Generation failed: \(error)")
+                    Self.logger.error("Generation failed: \(error.localizedDescription)")
                     continuation.finish()
                 }
             }
         }
+        #endif
     }
 
     /// Generate text synchronously (for testing)
@@ -208,43 +248,104 @@ final class ModelRuntime {
 
     // MARK: - Embeddings
 
-    /// Generate embedding vector (384-dim for bge-small-en-v1.5)
-    /// - Parameter text: Input text
-    /// - Returns: 384-dimensional embedding vector
+    /// Generate a 384-dim L2-normalized semantic embedding for the input text
+    /// using bge-small-en-v1.5 via MLXEmbedders. (REC-289)
     ///
-    /// When the gte-small model is bundled (REC-238), this will use MLXEmbedders
-    /// for proper mean-pooled hidden state extraction. Until then, produces
-    /// deterministic embeddings from the LLM tokenizer for development/testing.
+    /// - Parameter text: Input text. Longer than 512 tokens will be truncated;
+    ///   callers should pass pre-chunked text from `ChunkingService` (max 400
+    ///   tokens per chunk, split at emotion boundaries).
+    /// - Returns: 384-dimensional L2-normalized `[Float]` suitable for cosine
+    ///   similarity search in `VectorStore`.
     func generateEmbedding(text: String) async throws -> [Float] {
+        #if targetEnvironment(simulator)
+        // Deterministic stub: hash text into a normalized vector for simulator.
+        // The simulator doesn't load MLX weights, so we fabricate a stable
+        // vector from the raw bytes. This is only used for UI development.
         let dimension = Self.embeddingDimension
-
-        // If embedding model is loaded, use it via MLXEmbedders
-        if let container = embeddingContainer, isEmbeddingLoaded {
-            // TODO(REC-238): Use MLXEmbedders.encode() for proper embedding extraction
-            // For now, fall through to tokenizer-based placeholder
-            _ = container
+        var vec = [Float](repeating: 0, count: dimension)
+        for (i, char) in text.utf8.enumerated() {
+            let idx = i % dimension
+            vec[idx] += Float(char) * 0.001
         }
-
-        // Deterministic placeholder: hash text into a 384-dim normalized vector
-        // This produces consistent embeddings for the same input (unlike random)
-        // so vector search will work correctly during development
-        guard let llm = llmContainer, isLoaded else {
+        let mag = sqrt(vec.reduce(0) { $0 + $1 * $1 })
+        if mag > 0 { vec = vec.map { $0 / mag } }
+        return vec
+        #else
+        guard let container = embeddingContainer, isEmbeddingLoaded else {
             throw ModelError.embeddingModelNotLoaded
         }
 
-        let embedding: [Float] = await llm.perform { context in
-            let tokenized = context.tokenizer.encode(text: text)
-            var vec = [Float](repeating: 0, count: dimension)
-            for (i, tokenId) in tokenized.enumerated() {
-                let idx = i % dimension
-                vec[idx] += Float(tokenId) * 0.001
+        // Run the bge-small forward pass and extract the raw CLS token.
+        //
+        // IMPORTANT: We do pooling manually instead of using MLXEmbedders'
+        // `Pooling` module. The `.cls` strategy in MLXEmbedders uses
+        // `inputs.pooledOutput` — which is BERT's built-in `tanh(pooler(CLS))`
+        // trained for next-sentence-prediction, NOT the raw CLS hidden state.
+        // sentence-transformers bge-small was trained to use the RAW CLS
+        // token (equivalent to MLXEmbedders' `.first` strategy), so we take
+        // it directly from `hiddenStates[:, 0, :]` and L2-normalize manually.
+        //
+        // Fully qualify `MLXLMCommon.Tokenizer` — without the prefix Swift
+        // cannot decide between it and `Tokenizers.Tokenizer` (swift-transformers).
+        let dim = Self.embeddingDimension
+        let embedding: [Float] = await container.perform {
+            (model: EmbeddingModel, tokenizer: MLXLMCommon.Tokenizer, _: Pooling) -> [Float] in
+
+            // Tokenize. BERT max 512; truncate defensively even though chunks
+            // are capped at 400 tokens upstream.
+            var ids = tokenizer.encode(text: text, addSpecialTokens: true)
+            if ids.count > 512 {
+                ids = Array(ids.prefix(512))
             }
-            let mag = sqrt(vec.reduce(0) { $0 + $1 * $1 })
-            if mag > 0 { vec = vec.map { $0 / mag } }
+
+            // Single-item "batch": shape [1, seqLen]
+            let inputArray = MLXArray(ids.map { Int32($0) })
+                .reshaped([1, ids.count])
+            // Mask is all ones — no padding since batch size is 1.
+            // Bert.swift casts the mask to the embedding dtype internally,
+            // so Int32 is fine.
+            let mask = MLXArray.ones([1, ids.count], dtype: .int32)
+            let tokenTypes = MLXArray.zeros(like: inputArray)
+
+            // Forward pass through the embedding model
+            let modelOutput = model(
+                inputArray,
+                positionIds: nil,
+                tokenTypeIds: tokenTypes,
+                attentionMask: mask
+            )
+
+            // Extract the raw CLS token: hiddenStates shape is
+            // [batch=1, seqLen, hidden=384] → cls shape [1, 384].
+            guard let hidden = modelOutput.hiddenStates else {
+                return [Float](repeating: 0, count: dim)
+            }
+            var cls = hidden[0..., 0, 0...]
+
+            // L2-normalize along the feature axis so cosine similarity works
+            // the same way regardless of input length. Done manually with
+            // explicit math to avoid ambiguity between MLX and MLXEmbedders
+            // both exposing `l2Normalized()` extensions.
+            let squared = cls * cls
+            let sumSq = squared.sum(axes: [-1], keepDims: true)
+            let norm = MLX.sqrt(sumSq + MLXArray(Float(1e-12)))
+            cls = cls / norm
+            cls.eval()
+
+            // Shape [1, 384] — extract the first (and only) row.
+            let vec: [Float] = cls[0].asArray(Float.self)
             return vec
         }
 
-        return embedding
+        // Safety: if the model returned the wrong size, pad/truncate.
+        if embedding.count == dim {
+            return embedding
+        } else if embedding.count > dim {
+            return Array(embedding.prefix(dim))
+        } else {
+            return embedding + [Float](repeating: 0, count: dim - embedding.count)
+        }
+        #endif
     }
 
     // MARK: - Memory Management
@@ -270,18 +371,22 @@ final class ModelRuntime {
 
     /// Unload LLM model to free memory
     func unloadModel() {
+        #if !targetEnvironment(simulator)
         llmContainer = nil
+        #endif
         isLoaded = false
         updateMemoryUsage()
-        print("ModelRuntime: LLM unloaded")
+        Self.logger.info("LLM unloaded")
     }
 
     /// Unload embedding model to free memory
     func unloadEmbedding() {
+        #if !targetEnvironment(simulator)
         embeddingContainer = nil
+        #endif
         isEmbeddingLoaded = false
         updateMemoryUsage()
-        print("ModelRuntime: Embedding model unloaded")
+        Self.logger.info("Embedding model unloaded")
     }
 
     // MARK: - Utilities
@@ -289,7 +394,7 @@ final class ModelRuntime {
     /// Get model directory URL from Resources
     private func getModelURL(path: String) -> URL? {
         guard let resourceURL = Bundle.main.resourceURL else {
-            print("ModelRuntime: Resource URL not found")
+            Self.logger.warning("Resource URL not found")
             return nil
         }
 
@@ -297,13 +402,13 @@ final class ModelRuntime {
             .appendingPathComponent("Models")
             .appendingPathComponent(path)
 
-        print("ModelRuntime: Model path: \(modelURL.path)")
+        Self.logger.debug("Model path: \(modelURL.path)")
 
         // Verify directory exists
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: modelURL.path, isDirectory: &isDirectory),
               isDirectory.boolValue else {
-            print("ModelRuntime: Model directory not found at \(modelURL.path)")
+            Self.logger.warning("Model directory not found at \(modelURL.path)")
             return nil
         }
 
@@ -343,3 +448,57 @@ extension ModelRuntime {
         }
     }
 }
+
+// MARK: - TokenizerLoader
+
+#if !targetEnvironment(simulator)
+/// Bridges a HuggingFace swift-transformers Tokenizer to the MLXLMCommon.Tokenizer protocol.
+private struct TokenizerBridge: MLXLMCommon.Tokenizer {
+    private let upstream: any Tokenizers.Tokenizer
+
+    init(_ upstream: any Tokenizers.Tokenizer) {
+        self.upstream = upstream
+    }
+
+    func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+        upstream.encode(text: text, addSpecialTokens: addSpecialTokens)
+    }
+
+    func decode(tokenIds: [Int], skipSpecialTokens: Bool) -> String {
+        upstream.decode(tokens: tokenIds, skipSpecialTokens: skipSpecialTokens)
+    }
+
+    func convertTokenToId(_ token: String) -> Int? {
+        upstream.convertTokenToId(token)
+    }
+
+    func convertIdToToken(_ id: Int) -> String? {
+        upstream.convertIdToToken(id)
+    }
+
+    var bosToken: String? { upstream.bosToken }
+    var eosToken: String? { upstream.eosToken }
+    var unknownToken: String? { upstream.unknownToken }
+
+    func applyChatTemplate(
+        messages: [[String: any Sendable]],
+        tools: [[String: any Sendable]]?,
+        additionalContext: [String: any Sendable]?
+    ) throws -> [Int] {
+        do {
+            return try upstream.applyChatTemplate(
+                messages: messages, tools: tools, additionalContext: additionalContext)
+        } catch Tokenizers.TokenizerError.missingChatTemplate {
+            throw MLXLMCommon.TokenizerError.missingChatTemplate
+        }
+    }
+}
+
+/// Loads a tokenizer from a local model directory using HuggingFace swift-transformers.
+struct HuggingFaceTokenizerLoader: MLXLMCommon.TokenizerLoader {
+    func load(from directory: URL) async throws -> any MLXLMCommon.Tokenizer {
+        let upstream = try await AutoTokenizer.from(modelFolder: directory)
+        return TokenizerBridge(upstream)
+    }
+}
+#endif
