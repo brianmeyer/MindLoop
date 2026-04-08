@@ -39,7 +39,7 @@ struct VoiceMicButton: View {
         Button(action: onToggle) {
             Image(systemName: "mic.fill")
                 .font(.system(size: 40))
-                .foregroundStyle(Color("Primary-Foreground"))
+                .foregroundStyle(.white)  // Primary-Foreground colorset was removed
                 .frame(width: 80, height: 80)
                 .background(Color("Primary"))
                 .clipShape(Circle())
