@@ -8,6 +8,7 @@
 
 import Foundation
 import Observation
+import os
 
 // MARK: - Pipeline State
 
@@ -41,6 +42,11 @@ final class Orchestrator {
 
     // MARK: - Dependencies
 
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.lycan.MindLoop",
+        category: "Orchestrator"
+    )
+
     private let emotionAgent: EmotionAgent
     private let journalAgent: JournalAgent
     private let safetyAgent: SafetyAgent
@@ -56,7 +62,21 @@ final class Orchestrator {
         journalAgent: JournalAgent = JournalAgent(),
         safetyAgent: SafetyAgent = SafetyAgent(),
         retrievalAgent: RetrievalAgent = RetrievalAgent(),
-        coachAgent: CoachAgent = CoachAgent(),
+        coachAgent: CoachAgent = CoachAgent(generateFn: { prompt, maxTokens, temperature in
+            AsyncStream { continuation in
+                Task { @MainActor in
+                    let stream = ModelRuntime.shared.generate(
+                        prompt: prompt,
+                        maxTokens: maxTokens,
+                        temperature: temperature
+                    )
+                    for await token in stream {
+                        continuation.yield(token)
+                    }
+                    continuation.finish()
+                }
+            }
+        }),
         learningLoopAgent: LearningLoopAgent = LearningLoopAgent(),
         database: AppDatabase = .shared
     ) {
@@ -72,7 +92,21 @@ final class Orchestrator {
     // MARK: - Main Pipeline
 
     /// Process text input through the full agent pipeline.
+    /// Convenience overload that runs the pipeline without prosody features
+    /// (e.g., when the user types the entry by hand instead of speaking).
     func processText(_ text: String) async {
+        await processText(text, prosodyFeatures: [:])
+    }
+
+    /// Process text input with optional prosody features from voice recording.
+    ///
+    /// - Parameters:
+    ///   - text: The journal entry text (transcript or typed).
+    ///   - prosodyFeatures: Pitch/jitter/shimmer/speaking-rate/pause-duration
+    ///     extracted via `NativeEmotionService`. Pass `[:]` for text-only input.
+    ///     When present, `EmotionAgent` blends prosody with text sentiment per
+    ///     the CLAUDE.md hybrid-emotion contract (0.6 text + 0.4 prosody). (REC-288)
+    func processText(_ text: String, prosodyFeatures: [String: Double]) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -82,9 +116,9 @@ final class Orchestrator {
         streamingText = ""
 
         do {
-            // 1. Emotion analysis
+            // 1. Emotion analysis (text + prosody hybrid per CLAUDE.md)
             pipelineState = .analyzing
-            let emotion = emotionAgent.analyze(text: trimmed, prosodyFeatures: [:])
+            let emotion = emotionAgent.analyze(text: trimmed, prosodyFeatures: prosodyFeatures)
             currentEmotion = emotion
 
             // 2. Normalize into JournalEntry
@@ -93,10 +127,8 @@ final class Orchestrator {
             // 3. Save to database
             try database.saveEntry(JournalEntryRecord(from: entry))
 
-            // 4. Background embedding (fire and forget)
-            Task.detached(priority: .background) {
-                EmbeddingAgent.shared.enqueueBackground(entry: entry) { _ in }
-            }
+            // 4. Background embedding — actor isolation handles concurrency
+            await EmbeddingAgent.shared.enqueueBackground(entry: entry) { _ in }
 
             // 5. Retrieve context
             pipelineState = .thinking
@@ -138,6 +170,9 @@ final class Orchestrator {
 
         } catch {
             pipelineState = .idle
+            // Log full error privately; show only generic message to UI per
+            // CLAUDE.md privacy policy (errors may contain fragments of user text).
+            Self.logger.error("Pipeline failed: \(String(describing: type(of: error)), privacy: .public) - \(error.localizedDescription, privacy: .private)")
             errorMessage = "Something went wrong. Please try again."
         }
 
@@ -154,8 +189,21 @@ final class Orchestrator {
         do {
             _ = try await learningLoopAgent.process((response: response, feedback: feedback))
         } catch {
-            print("Orchestrator: Feedback failed: \(error)")
+            Self.logger.error("Feedback failed: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Pipeline Preparation
+
+    /// Synchronously set the pipeline to `.analyzing` so CoachScreen
+    /// shows the thinking indicator immediately, before the async
+    /// `processText` work begins via `.task`.  (REC-283)
+    func preparePipeline() {
+        isBlocked = false
+        deescalationMessage = nil
+        errorMessage = nil
+        streamingText = ""
+        pipelineState = .analyzing
     }
 
     // MARK: - State Management

@@ -15,9 +15,15 @@ struct JournalCaptureScreen: View {
     @State private var transcript: String = ""
     @State private var seconds: Int = 0
     @State private var timer: Timer?
-    @State private var audioRecorder = AudioRecorder()
+    @State private var sttService = SpeechTranscriptionService()
+    @State private var errorMessage: String?
+    @State private var showAuthAlert: Bool = false
+    @State private var isStopping: Bool = false
 
-    let onComplete: (String) -> Void
+    /// Called when recording completes with the final transcript and any
+    /// prosody features extracted from `SFVoiceAnalytics`. The prosody dict
+    /// is empty when STT returned no metadata (e.g., very short recordings).
+    let onComplete: (String, [String: Double]) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,7 +49,7 @@ struct JournalCaptureScreen: View {
                 if micState != .idle {
                     Waveform(
                         isActive: micState == .listening,
-                        audioLevel: audioRecorder.audioLevel
+                        audioLevel: 0.6  // Indicative level; STT owns audio session
                     )
                     .transition(.opacity.combined(with: .scale))
                 }
@@ -61,6 +67,27 @@ struct JournalCaptureScreen: View {
         }
         .background(Color("Background"))
         .navigationBarBackButtonHidden(true)
+        .onChange(of: sttService.partialTranscript) { _, newValue in
+            // Mirror STT partial results into the editor so users can see
+            // their words appear live.
+            transcript = newValue
+        }
+        .alert("Microphone permission required", isPresented: $showAuthAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Enable Microphone and Speech Recognition in Settings to use voice journaling.")
+        }
+        .alert(
+            "Recording error",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     // MARK: - Components
@@ -77,6 +104,8 @@ struct JournalCaptureScreen: View {
                     .clipShape(Circle())
             }
             .buttonStyle(ScaleButtonStyle())
+            .accessibilityLabel("Go back")
+            .accessibilityHint("Return to the home screen")
 
             Spacer()
 
@@ -88,6 +117,7 @@ struct JournalCaptureScreen: View {
             // Spacer to balance back button
             Color.clear
                 .frame(width: 40)
+                .accessibilityHidden(true)
         }
         .padding(Spacing.l)
         .background(Color("Background"))
@@ -104,6 +134,7 @@ struct JournalCaptureScreen: View {
             .typography(.subheading)
             .foregroundStyle(Color("Foreground"))
             .multilineTextAlignment(.center)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var transcriptEditor: some View {
@@ -115,6 +146,8 @@ struct JournalCaptureScreen: View {
             .frame(minHeight: 120)
             .background(Color("Muted"))
             .cornerRadius(CornerRadius.l)
+            .accessibilityLabel("Journal transcript")
+            .accessibilityHint("Edit or review your transcribed thoughts")
             .overlay(
                 Group {
                     if transcript.isEmpty {
@@ -135,40 +168,74 @@ struct JournalCaptureScreen: View {
     private func handleToggleMic() {
         switch micState {
         case .idle:
-            // Start recording
-            do {
-                try audioRecorder.startRecording()
-                micState = .listening
-                startTimer()
-            } catch {
-                print("Failed to start recording: \(error)")
-            }
+            Task { await startTranscription() }
 
         case .listening:
-            // Pause recording
-            audioRecorder.pauseRecording()
+            // Pause transcription
+            sttService.pauseTranscribing()
             micState = .paused
             stopTimer()
 
         case .paused:
-            // Resume recording
-            audioRecorder.resumeRecording()
+            // Resume transcription
+            do {
+                try sttService.resumeTranscribing()
+                micState = .listening
+                startTimer()
+            } catch {
+                errorMessage = "Couldn't resume: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Request authorization (if needed) and start live on-device speech transcription.
+    private func startTranscription() async {
+        errorMessage = nil
+
+        // Ensure authorization
+        if sttService.authStatus != .authorized {
+            let status = await sttService.requestAuthorization()
+            if status != .authorized {
+                showAuthAlert = true
+                return
+            }
+        }
+
+        do {
+            try sttService.startTranscribing()
             micState = .listening
             startTimer()
+        } catch {
+            errorMessage = error.localizedDescription
+            micState = .idle
         }
     }
 
     private func handleStop() {
-        // Stop recording and get audio file URL
-        _ = audioRecorder.stopRecording()
-
-        micState = .idle
         stopTimer()
+        // Keep the button visibly "recording" until the async stop completes,
+        // so a second tap can't start a fresh transcription and wipe the
+        // partial buffer before we read it (reviewed race condition).
+        guard !isStopping else { return }
+        isStopping = true
 
-        // TODO (Phase 4): Send audio to Gemma 4 E2B via ModelRuntime (native multimodal)
-        // For now, only complete if there's manual text
-        if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || seconds > 0 {
-            onComplete(transcript)
+        Task {
+            let finalText = await sttService.stopTranscribing()
+            let combined = !finalText.isEmpty ? finalText : transcript
+            transcript = combined
+
+            // REC-288: extract prosody features from the final recognition
+            // result so EmotionAgent can produce a hybrid text+prosody signal.
+            let prosody = NativeEmotionService.shared.extractProsodyFeatures(
+                from: sttService.lastRecognitionMetadata,
+                voiceAnalytics: sttService.lastVoiceAnalytics
+            )
+
+            isStopping = false
+            micState = .idle
+            if !combined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                onComplete(combined, prosody)
+            }
         }
     }
 
@@ -190,8 +257,8 @@ struct JournalCaptureScreen: View {
 
 #Preview {
     NavigationStack {
-        JournalCaptureScreen { transcript in
-            print("Completed with transcript: \(transcript)")
+        JournalCaptureScreen { transcript, prosody in
+            print("Completed with transcript: \(transcript), prosody: \(prosody)")
         }
     }
 }
