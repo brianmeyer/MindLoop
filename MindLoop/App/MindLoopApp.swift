@@ -11,8 +11,10 @@ import os
 @main
 struct MindLoopApp: App {
 
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    @State private var modelDownloader = ModelDownloader()
+    private let modelDownloader = ModelDownloader.shared
     @State private var isModelWarmedUp = false
     @State private var warmUpProgress: Double = 0.0
 
