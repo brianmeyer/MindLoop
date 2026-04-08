@@ -302,9 +302,13 @@ struct EmotionAgentTests {
 
     @Test("analyzeText returns neutral with low confidence for no keywords")
     func testAnalyzeTextNoKeywords() {
+        // REC-299: NLTagger returns ~0.4 confidence for descriptive text
+        // that doesn't match any hint words. The old keyword classifier
+        // returned 0.3 — we keep it neutral with a slightly higher floor
+        // to reflect the actual classifier running.
         let (label, confidence) = agent.analyzeText("the weather is fine today")
         #expect(label == .neutral)
-        #expect(confidence == 0.3)
+        #expect(confidence >= 0.3 && confidence <= 0.5)
     }
 
     @Test("analyzeText returns neutral with zero confidence for empty string")
