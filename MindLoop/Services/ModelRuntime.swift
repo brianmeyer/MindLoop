@@ -44,6 +44,12 @@ final class ModelRuntime {
     /// Memory usage in MB
     private(set) var memoryUsageMB: Int = 0
 
+    /// Last error encountered during `generate(...)`, if any. Exposed so
+    /// callers (Orchestrator) can surface a meaningful error when the LLM
+    /// stream finishes without producing any chunks. Cleared at the start
+    /// of each `generate` call.
+    private(set) var lastGenerationError: String?
+
     #if !targetEnvironment(simulator)
     /// LLM model container (Gemma 4 E2B-it, MLX 4-bit, ~1GB)
     private var llmContainer: MLXLMCommon.ModelContainer?
@@ -189,10 +195,14 @@ final class ModelRuntime {
             continuation.finish()
         }
         #else
+        // Clear any prior error so callers can check after the stream ends.
+        lastGenerationError = nil
+
         return AsyncStream { continuation in
             Task {
                 guard let container = llmContainer, isLoaded else {
                     Self.logger.warning("LLM not loaded")
+                    self.lastGenerationError = "LLM not loaded (isLoaded=\(self.isLoaded))"
                     continuation.finish()
                     return
                 }
@@ -203,6 +213,11 @@ final class ModelRuntime {
                     topP: 0.9
                 )
 
+                // Use an AsyncStream to tally chunks after the perform
+                // closure returns — avoids Swift 6 mutation-in-Sendable-closure
+                // warning from a captured `var` counter.
+                final class Counter { var value = 0 }
+                let counter = Counter()
                 do {
                     // Yield chunks directly from inside perform so the caller
                     // sees tokens progressively (typewriter UX). The inner
@@ -227,14 +242,23 @@ final class ModelRuntime {
                             if Task.isCancelled { break }
                             if case .chunk(let text) = generation {
                                 continuation.yield(text)
+                                counter.value += 1
                             }
                             // .info / .toolCall ignored for v1
                         }
                     }
+                    if counter.value == 0 {
+                        // Stream finished without producing any text chunks.
+                        // Record a diagnostic so Orchestrator can surface it.
+                        self.lastGenerationError = "stream finished with 0 chunks"
+                        Self.logger.error("Generation produced 0 chunks")
+                    }
                     continuation.finish()
                 } catch {
+                    let errorType = String(describing: type(of: error))
+                    self.lastGenerationError = "\(errorType): \(error.localizedDescription)"
                     Self.logger.error(
-                        "Generation failed (\(String(describing: type(of: error)), privacy: .public)): \(error.localizedDescription, privacy: .private)"
+                        "Generation failed (\(errorType, privacy: .public)): \(error.localizedDescription, privacy: .public)"
                     )
                     continuation.finish()
                 }

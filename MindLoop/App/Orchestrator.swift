@@ -176,8 +176,16 @@ final class Orchestrator {
             // Error type names (e.g. "processingFailed", "notLoaded") are
             // safe — they describe the class of failure, not user content.
             let errorCode = "\(String(describing: type(of: error))).\(String(describing: error).prefix(40))"
-            Self.logger.error("Pipeline failed: \(errorCode, privacy: .public) — \(error.localizedDescription, privacy: .private)")
-            errorMessage = "Something went wrong. [\(errorCode)]"
+            // If the failure was an empty coach response, pull the inner
+            // generation error from ModelRuntime so we can see WHY the LLM
+            // produced nothing (load state, MLX throw, zero chunks, etc.).
+            let genError = ModelRuntime.shared.lastGenerationError
+            Self.logger.error("Pipeline failed: \(errorCode, privacy: .public) — \(error.localizedDescription, privacy: .private) — gen: \(genError ?? "nil", privacy: .public)")
+            if let genError {
+                errorMessage = "Something went wrong. [\(errorCode)] gen: \(genError)"
+            } else {
+                errorMessage = "Something went wrong. [\(errorCode)]"
+            }
         }
 
         if pipelineState != .blocked {
