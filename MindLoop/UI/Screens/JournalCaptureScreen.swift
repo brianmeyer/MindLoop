@@ -49,7 +49,7 @@ struct JournalCaptureScreen: View {
                 if micState != .idle {
                     Waveform(
                         isActive: micState == .listening,
-                        audioLevel: 0.6  // Indicative level; STT owns audio session
+                        audioLevel: sttService.audioLevel
                     )
                     .transition(.opacity.combined(with: .scale))
                 }

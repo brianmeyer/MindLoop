@@ -71,6 +71,10 @@ final class SpeechTranscriptionService {
     /// transcription segment with analytics data. (REC-288)
     private(set) var lastVoiceAnalytics: SFVoiceAnalytics?
 
+    /// Live audio input level (0.0–1.0), normalized from RMS dB of the
+    /// microphone tap. Used to drive the waveform visualizer. (REC-293)
+    private(set) var audioLevel: Float = 0.0
+
     // MARK: - Private
 
     private let logger = Logger(subsystem: "com.lycan.MindLoop", category: "SpeechTranscription")
@@ -157,6 +161,7 @@ final class SpeechTranscriptionService {
         finalTranscript = ""
         lastRecognitionMetadata = nil
         lastVoiceAnalytics = nil
+        audioLevel = 0.0
 
         logger.info("Starting speech transcription")
 
@@ -185,8 +190,26 @@ final class SpeechTranscriptionService {
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak request] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self, weak request] buffer, _ in
             request?.append(buffer)
+
+            // Compute RMS level for live waveform amplitude (REC-293).
+            // The tap runs on an audio queue; hop to the main actor to
+            // publish the @Observable property.
+            guard let channelData = buffer.floatChannelData?[0] else { return }
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
+            var sum: Float = 0
+            for i in 0..<frameLength {
+                let sample = channelData[i]
+                sum += sample * sample
+            }
+            let rms = sqrt(sum / Float(frameLength))
+            let db = 20 * log10(max(rms, 0.000001))
+            let normalized = max(0, min(1, (db + 60) / 60))
+            Task { @MainActor [weak self] in
+                self?.audioLevel = normalized
+            }
         }
 
         // Start audio engine
@@ -342,5 +365,6 @@ final class SpeechTranscriptionService {
         recognitionRequest = nil
 
         isTranscribing = false
+        audioLevel = 0.0
     }
 }
