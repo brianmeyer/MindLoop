@@ -170,10 +170,14 @@ final class Orchestrator {
 
         } catch {
             pipelineState = .idle
-            // Log full error privately; show only generic message to UI per
-            // CLAUDE.md privacy policy (errors may contain fragments of user text).
-            Self.logger.error("Pipeline failed: \(String(describing: type(of: error)), privacy: .public) - \(error.localizedDescription, privacy: .private)")
-            errorMessage = "Something went wrong. Please try again."
+            // Log full error privately per CLAUDE.md.
+            // Surface the error TYPE (not localized description) to the UI so
+            // failures are diagnosable on-device without exposing user text.
+            // Error type names (e.g. "processingFailed", "notLoaded") are
+            // safe — they describe the class of failure, not user content.
+            let errorCode = "\(String(describing: type(of: error))).\(String(describing: error).prefix(40))"
+            Self.logger.error("Pipeline failed: \(errorCode, privacy: .public) — \(error.localizedDescription, privacy: .private)")
+            errorMessage = "Something went wrong. [\(errorCode)]"
         }
 
         if pipelineState != .blocked {

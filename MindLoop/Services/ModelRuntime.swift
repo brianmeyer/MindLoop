@@ -167,12 +167,17 @@ final class ModelRuntime {
 
     // MARK: - Text Generation
 
-    /// Generate text with streaming output
+    /// Generate text with streaming output.
+    ///
+    /// Uses the modern `AsyncStream<Generation>`-based MLXLMCommon API.
+    /// Each yielded string is a single text delta (not cumulative), so
+    /// callers can concatenate with `+=` directly.
+    ///
     /// - Parameters:
     ///   - prompt: Input prompt
     ///   - maxTokens: Maximum tokens to generate (default: 120)
     ///   - temperature: Sampling temperature (default: 0.7)
-    /// - Returns: AsyncStream of generated tokens
+    /// - Returns: AsyncStream of generated text chunks
     func generate(
         prompt: String,
         maxTokens: Int = 120,
@@ -192,38 +197,45 @@ final class ModelRuntime {
                     return
                 }
 
+                let params = GenerateParameters(
+                    maxTokens: maxTokens,
+                    temperature: temperature,
+                    topP: 0.9
+                )
+
                 do {
-                    // Prepare input
-                    let input = UserInput(prompt: prompt)
+                    // Yield chunks directly from inside perform so the caller
+                    // sees tokens progressively (typewriter UX). The inner
+                    // AsyncStream<Generation> is iterated here; each `.chunk`
+                    // is forwarded to the outer `AsyncStream<String>`.
+                    //
+                    // `AsyncStream.Continuation` is `@unchecked Sendable`, so
+                    // capturing `continuation` in the `@Sendable` perform
+                    // closure is safe.
+                    try await container.perform { context in
+                        let preparedInput = try await context.processor.prepare(
+                            input: UserInput(prompt: prompt)
+                        )
 
-                    // Generate with streaming
-                    _ = try await container.perform { context in
-                        let preparedInput = try await context.processor.prepare(input: input)
-
-                        let parameters = GenerateParameters(temperature: temperature, topP: 0.9)
-
-                        return try MLXLMCommon.generate(
+                        let stream = try MLXLMCommon.generate(
                             input: preparedInput,
-                            parameters: parameters,
+                            parameters: params,
                             context: context
-                        ) { tokens in
-                            // Decode tokens to text
-                            let text = context.tokenizer.decode(tokenIds: tokens)
+                        )
 
-                            // Yield token
-                            continuation.yield(text)
-
-                            // Check if we should continue
-                            if tokens.count >= maxTokens {
-                                return .stop
+                        for await generation in stream {
+                            if Task.isCancelled { break }
+                            if case .chunk(let text) = generation {
+                                continuation.yield(text)
                             }
-                            return .more
+                            // .info / .toolCall ignored for v1
                         }
                     }
-
                     continuation.finish()
                 } catch {
-                    Self.logger.error("Generation failed: \(error.localizedDescription)")
+                    Self.logger.error(
+                        "Generation failed (\(String(describing: type(of: error)), privacy: .public)): \(error.localizedDescription, privacy: .private)"
+                    )
                     continuation.finish()
                 }
             }
