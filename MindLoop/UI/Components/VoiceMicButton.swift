@@ -20,6 +20,8 @@ struct VoiceMicButton: View {
     let onToggle: () -> Void
     let onStop: () -> Void
 
+    @State private var breathing: Bool = false
+
     var body: some View {
         switch state {
         case .idle:
@@ -44,6 +46,12 @@ struct VoiceMicButton: View {
                 .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(ScaleButtonStyle())
+        .scaleEffect(breathing ? 1.0 : 0.96)
+        .animation(
+            .easeInOut(duration: 1.8).repeatForever(autoreverses: true),
+            value: breathing
+        )
+        .onAppear { breathing = true }
         .accessibilityLabel("Start recording")
         .accessibilityHint("Tap to begin voice journaling")
     }
