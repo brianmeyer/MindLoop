@@ -149,6 +149,8 @@ struct PersonalizationProfileRecord: Codable, FetchableRecord, PersistableRecord
     var avoidTopics: String
     var preferredActions: String
     var lastUpdated: Date
+    var userName: String
+    var moodValue: Double
 
     static func makeDefault() -> PersonalizationProfileRecord {
         PersonalizationProfileRecord(
@@ -158,7 +160,9 @@ struct PersonalizationProfileRecord: Codable, FetchableRecord, PersistableRecord
             emotionTriggers: "[]",
             avoidTopics: "[]",
             preferredActions: "[\"breathing\",\"journaling\",\"reframing\"]",
-            lastUpdated: Date()
+            lastUpdated: Date(),
+            userName: "",
+            moodValue: 0.5
         )
     }
 }

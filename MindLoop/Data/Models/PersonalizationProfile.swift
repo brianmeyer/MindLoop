@@ -33,6 +33,9 @@ struct PersonalizationProfile: Codable, Equatable, Sendable {
     /// User's preferred CBT techniques/actions
     var preferredActions: [PreferredAction]
 
+    /// Current mood value from the home screen slider (0.0 = low, 1.0 = high)
+    var moodValue: Double
+
     // MARK: - Nested Types
 
     /// Coaching tone preference
@@ -107,7 +110,8 @@ struct PersonalizationProfile: Codable, Equatable, Sendable {
         responseLength: ResponseLength = .medium,
         emotionTriggers: [String] = [],
         avoidTopics: [String] = [],
-        preferredActions: [PreferredAction] = [.reframing, .breathing]
+        preferredActions: [PreferredAction] = [.reframing, .breathing],
+        moodValue: Double = 0.5
     ) {
         self.id = id
         self.lastUpdated = lastUpdated
@@ -116,6 +120,7 @@ struct PersonalizationProfile: Codable, Equatable, Sendable {
         self.emotionTriggers = emotionTriggers
         self.avoidTopics = avoidTopics
         self.preferredActions = preferredActions
+        self.moodValue = moodValue
     }
 
     // MARK: - Codable
@@ -128,6 +133,7 @@ struct PersonalizationProfile: Codable, Equatable, Sendable {
         case emotionTriggers = "emotion_triggers"
         case avoidTopics = "avoid_topics"
         case preferredActions = "preferred_actions"
+        case moodValue = "mood_value"
     }
 
     // MARK: - Methods
@@ -209,6 +215,17 @@ struct PersonalizationProfile: Codable, Equatable, Sendable {
         preferredActions.contains(action)
     }
 
+    /// Human-readable label for a mood value (0.0 to 1.0)
+    static func moodLabel(for value: Double) -> String {
+        switch value {
+        case 0..<0.2:   return "Very low"
+        case 0.2..<0.4: return "Low"
+        case 0.4..<0.6: return "Neutral"
+        case 0.6..<0.8: return "Good"
+        default:        return "Great"
+        }
+    }
+
     /// Get prompt instructions for CoachAgent based on this profile
     var promptInstructions: String {
         var instructions: [String] = []
@@ -237,6 +254,10 @@ struct PersonalizationProfile: Codable, Equatable, Sendable {
             instructions.append("Avoid topics: \(topics)")
         }
 
+        // Current mood
+        let moodLabel = Self.moodLabel(for: moodValue)
+        instructions.append("Current mood: \(moodLabel) (\(String(format: "%.0f", moodValue * 100))%)")
+
         return instructions.joined(separator: "\n")
     }
 }
@@ -252,7 +273,8 @@ extension PersonalizationProfile {
         responseLength: .medium,
         emotionTriggers: [],
         avoidTopics: [],
-        preferredActions: [.reframing, .breathing]
+        preferredActions: [.reframing, .breathing],
+        moodValue: 0.5
     )
 
     /// Sample profile with customization
@@ -263,7 +285,8 @@ extension PersonalizationProfile {
         responseLength: .short,
         emotionTriggers: ["work_stress", "sleep_rumination", "social_anxiety"],
         avoidTopics: ["family", "health"],
-        preferredActions: [.reframing, .behavioralActivation, .mindfulness]
+        preferredActions: [.reframing, .behavioralActivation, .mindfulness],
+        moodValue: 0.3
     )
 
     /// Sample profile for cheerful tone
@@ -274,6 +297,7 @@ extension PersonalizationProfile {
         responseLength: .medium,
         emotionTriggers: ["perfectionism", "comparison"],
         avoidTopics: [],
-        preferredActions: [.reframing, .breathing, .journaling]
+        preferredActions: [.reframing, .breathing, .journaling],
+        moodValue: 0.8
     )
 }

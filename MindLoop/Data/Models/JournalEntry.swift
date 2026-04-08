@@ -47,16 +47,12 @@ struct JournalEntry: Codable, Identifiable, Equatable, Sendable {
 
     /// Date formatted as "MMM d, yyyy" for display
     var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter.string(from: timestamp)
+        timestamp.formatted(date: .abbreviated, time: .omitted)
     }
 
     /// Time formatted as "h:mm a" for display
     var formattedTime: String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: timestamp)
+        timestamp.formatted(date: .omitted, time: .shortened)
     }
 
     /// Preview text (first 100 characters)

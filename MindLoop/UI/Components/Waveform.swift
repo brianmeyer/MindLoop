@@ -30,6 +30,7 @@ struct Waveform: View {
         .padding(Spacing.m)
         .background(Color("Muted"))
         .cornerRadius(CornerRadius.m)
+        .accessibilityHidden(true)
     }
 }
 

@@ -57,5 +57,6 @@ struct CBTCardView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("CBT technique: \(card.title)")
         .accessibilityHint(isExpanded ? "Tap to collapse" : "Tap to expand and read technique")
+        .accessibilityAddTraits(.isButton)
     }
 }

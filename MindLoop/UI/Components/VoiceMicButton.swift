@@ -45,6 +45,7 @@ struct VoiceMicButton: View {
         }
         .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel("Start recording")
+        .accessibilityHint("Tap to begin voice journaling")
     }
 
     // MARK: - Listening State
@@ -63,6 +64,7 @@ struct VoiceMicButton: View {
             }
             .buttonStyle(ScaleButtonStyle())
             .accessibilityLabel("Stop recording")
+            .accessibilityHint("Finish recording and submit your journal entry")
             .pulseAnimation()
 
             // Pause button
@@ -77,6 +79,7 @@ struct VoiceMicButton: View {
             }
             .buttonStyle(ScaleButtonStyle())
             .accessibilityLabel("Pause recording")
+            .accessibilityHint("Temporarily pause the recording")
         }
     }
 
@@ -96,6 +99,7 @@ struct VoiceMicButton: View {
             }
             .buttonStyle(ScaleButtonStyle())
             .accessibilityLabel("Resume recording")
+            .accessibilityHint("Continue recording where you left off")
 
             // Stop button
             Button(action: onStop) {
@@ -109,6 +113,7 @@ struct VoiceMicButton: View {
             }
             .buttonStyle(ScaleButtonStyle())
             .accessibilityLabel("Stop recording")
+            .accessibilityHint("Finish recording and submit your journal entry")
         }
     }
 }

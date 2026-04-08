@@ -3,16 +3,20 @@
 //  MindLoop
 //
 //  Audio recording service with real-time amplitude monitoring
-//  Prepares audio for Apple Speech Framework transcription (Phase 2)
+//  Defers audio session ownership to SpeechTranscriptionService when STT is active.
 //
 
 import Foundation
 import AVFoundation
+import os.log
 
 /// Audio recording service with amplitude monitoring
 @MainActor
 @Observable
 final class AudioRecorder: NSObject {
+
+    private let logger = Logger(subsystem: "com.lycan.MindLoop", category: "AudioRecorder")
+
     // MARK: - Properties
 
     /// Current recording state
@@ -24,17 +28,27 @@ final class AudioRecorder: NSObject {
     /// Recorded audio file URL
     private(set) var recordingURL: URL?
 
+    /// Whether STT is actively owning the audio session
+    var sttOwnsSession: Bool = false
+
     private var audioRecorder: AVAudioRecorder?
     private var levelTimer: Timer?
 
     // MARK: - Recording Control
 
-    /// Start recording audio
+    /// Start recording audio.
+    /// When `sttOwnsSession` is true, the audio session is already configured by STT
+    /// and this recorder will not claim ownership.
     func startRecording() throws {
-        // Request microphone permission
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .default)
-        try audioSession.setActive(true)
+        if !sttOwnsSession {
+            // Only configure audio session if STT is not active
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playAndRecord, mode: .default)
+            try audioSession.setActive(true)
+            logger.debug("AudioRecorder owns audio session")
+        } else {
+            logger.debug("AudioRecorder deferring audio session to STT")
+        }
 
         // Setup recording URL
         let tempDir = FileManager.default.temporaryDirectory
@@ -59,6 +73,7 @@ final class AudioRecorder: NSObject {
         audioRecorder?.record()
 
         isRecording = true
+        logger.info("Recording started")
 
         // Start monitoring audio levels
         startLevelMonitoring()
@@ -69,6 +84,7 @@ final class AudioRecorder: NSObject {
         audioRecorder?.pause()
         isRecording = false
         stopLevelMonitoring()
+        logger.debug("Recording paused")
     }
 
     /// Resume recording
@@ -76,17 +92,25 @@ final class AudioRecorder: NSObject {
         audioRecorder?.record()
         isRecording = true
         startLevelMonitoring()
+        logger.debug("Recording resumed")
     }
 
-    /// Stop recording and return audio file URL
+    /// Stop recording and return audio file URL.
+    /// Does NOT deactivate the audio session if STT still owns it.
     func stopRecording() -> URL? {
         audioRecorder?.stop()
         isRecording = false
         stopLevelMonitoring()
 
-        // Deactivate audio session
-        try? AVAudioSession.sharedInstance().setActive(false)
+        // Only deactivate audio session if STT is not running
+        if !sttOwnsSession {
+            try? AVAudioSession.sharedInstance().setActive(false)
+            logger.debug("AudioRecorder deactivated audio session")
+        } else {
+            logger.debug("AudioRecorder skipping session deactivation — STT still active")
+        }
 
+        logger.info("Recording stopped")
         return recordingURL
     }
 
@@ -128,13 +152,15 @@ final class AudioRecorder: NSObject {
 extension AudioRecorder: AVAudioRecorderDelegate {
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         if !flag {
-            print("Recording failed")
+            let logger = Logger(subsystem: "com.lycan.MindLoop", category: "AudioRecorder")
+            logger.error("Recording finished unsuccessfully")
         }
     }
 
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
         if let error = error {
-            print("Recording error: \(error.localizedDescription)")
+            let logger = Logger(subsystem: "com.lycan.MindLoop", category: "AudioRecorder")
+            logger.error("Recording encode error: \(error.localizedDescription)")
         }
     }
 }

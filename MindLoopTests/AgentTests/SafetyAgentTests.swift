@@ -3,7 +3,8 @@
 //  MindLoopTests
 //
 //  Comprehensive tests for SafetyAgent: crisis keywords, PII detection,
-//  medical boundary, false positives, and de-escalation response.
+//  medical boundary, substance abuse, abuse detection, false positives,
+//  and de-escalation response.
 //
 
 import Testing
@@ -51,6 +52,18 @@ struct SafetyAgentTests {
             #expect(result == .block(reason: "safety_block_suicide"))
         }
 
+        @Test("Blocks suicide keyword: want to die")
+        func testWantToDie() {
+            let result = agent.gate("I just want to die")
+            #expect(result == .block(reason: "safety_block_suicide"))
+        }
+
+        @Test("Blocks suicide keyword: better off dead")
+        func testBetterOffDead() {
+            let result = agent.gate("Everyone would be better off dead without me")
+            #expect(result == .block(reason: "safety_block_suicide"))
+        }
+
         @Test("Blocks self-harm keyword: cut myself")
         func testCutMyself() {
             let result = agent.gate("I want to cut myself")
@@ -75,6 +88,18 @@ struct SafetyAgentTests {
             #expect(result == .block(reason: "safety_block_self_harm"))
         }
 
+        @Test("Blocks self-harm keyword: burn myself")
+        func testBurnMyself() {
+            let result = agent.gate("I want to burn myself")
+            #expect(result == .block(reason: "safety_block_self_harm"))
+        }
+
+        @Test("Blocks self-harm keyword: starve myself")
+        func testStarveMyself() {
+            let result = agent.gate("I'm going to starve myself")
+            #expect(result == .block(reason: "safety_block_self_harm"))
+        }
+
         @Test("Blocks crisis keyword: can't go on")
         func testCantGoOn() {
             let result = agent.gate("I can't go on like this")
@@ -90,6 +115,18 @@ struct SafetyAgentTests {
         @Test("Blocks crisis keyword: no reason to live")
         func testNoReasonToLive() {
             let result = agent.gate("I have no reason to live")
+            #expect(result == .block(reason: "safety_block_crisis"))
+        }
+
+        @Test("Blocks crisis keyword: give up")
+        func testGiveUp() {
+            let result = agent.gate("I just want to give up on everything")
+            #expect(result == .block(reason: "safety_block_crisis"))
+        }
+
+        @Test("Blocks crisis keyword: can't take it anymore")
+        func testCantTakeItAnymore() {
+            let result = agent.gate("I can't take it anymore")
             #expect(result == .block(reason: "safety_block_crisis"))
         }
 
@@ -274,6 +311,42 @@ struct SafetyAgentTests {
             #expect(result == .block(reason: "medical_boundary"))
         }
 
+        @Test("Blocks: you should take medication")
+        func testYouShouldTake() {
+            let result = agent.gate("You should take antidepressants")
+            #expect(result == .block(reason: "medical_boundary"))
+        }
+
+        @Test("Blocks: I diagnose")
+        func testIDiagnose() {
+            let result = agent.gate("I diagnose you with generalized anxiety")
+            #expect(result == .block(reason: "medical_boundary"))
+        }
+
+        @Test("Blocks: your diagnosis is")
+        func testYourDiagnosisIs() {
+            let result = agent.gate("Your diagnosis is clinical depression")
+            #expect(result == .block(reason: "medical_boundary"))
+        }
+
+        @Test("Blocks: you need medication")
+        func testYouNeedMedication() {
+            let result = agent.gate("You need medication to manage this")
+            #expect(result == .block(reason: "medical_boundary"))
+        }
+
+        @Test("Allows: I feel depressed (user expression, not diagnosis)")
+        func testIFeelDepressed() {
+            let result = agent.gate("I feel depressed today and don't know why")
+            #expect(result == .allow)
+        }
+
+        @Test("Allows: feeling depressed")
+        func testFeelingDepressed() {
+            let result = agent.gate("I've been feeling depressed lately")
+            #expect(result == .allow)
+        }
+
         @Test("Allows: you have the strength")
         func testYouHaveStrength() {
             let result = agent.gate("You have the strength to get through this")
@@ -301,6 +374,122 @@ struct SafetyAgentTests {
         @Test("Allows: you have what it takes")
         func testYouHaveWhatItTakes() {
             let result = agent.gate("You have what it takes to handle this challenge")
+            #expect(result == .allow)
+        }
+    }
+
+    // MARK: - Substance Abuse Detection
+
+    @Suite("Substance Abuse Detection")
+    struct SubstanceAbuse {
+        let agent = SafetyAgent()
+
+        @Test("Blocks: can't stop drinking")
+        func testCantStopDrinking() {
+            let result = agent.gate("I can't stop drinking every night")
+            #expect(result == .block(reason: "safety_block_substance_abuse"))
+        }
+
+        @Test("Blocks: overdose")
+        func testOverdose() {
+            let result = agent.gate("I think I might overdose")
+            #expect(result == .block(reason: "safety_block_substance_abuse"))
+        }
+
+        @Test("Blocks: need to get high")
+        func testNeedToGetHigh() {
+            let result = agent.gate("I just need to get high to feel better")
+            #expect(result == .block(reason: "safety_block_substance_abuse"))
+        }
+
+        @Test("Blocks: withdrawal symptoms")
+        func testWithdrawalSymptoms() {
+            let result = agent.gate("I'm having withdrawal symptoms")
+            #expect(result == .block(reason: "safety_block_substance_abuse"))
+        }
+
+        @Test("Blocks: addicted to")
+        func testAddictedTo() {
+            let result = agent.gate("I'm addicted to painkillers")
+            #expect(result == .block(reason: "safety_block_substance_abuse"))
+        }
+
+        @Test("Allows: I had a drink with friends (false positive)")
+        func testHadADrinkWithFriends() {
+            let result = agent.gate("I had a drink with friends last night")
+            #expect(result == .allow)
+        }
+
+        @Test("Allows: went for drinks with coworkers")
+        func testWentForDrinks() {
+            let result = agent.gate("We went for drinks with coworkers after work")
+            #expect(result == .allow)
+        }
+
+        @Test("Allows: social drinking mention")
+        func testSocialDrinking() {
+            let result = agent.gate("I enjoy social drinking occasionally")
+            #expect(result == .allow)
+        }
+    }
+
+    // MARK: - Abuse Detection
+
+    @Suite("Abuse Detection")
+    struct AbuseDetection {
+        let agent = SafetyAgent()
+
+        @Test("Blocks: he hits me")
+        func testHeHitsMe() {
+            let result = agent.gate("He hits me when he's angry")
+            #expect(result == .block(reason: "safety_block_abuse"))
+        }
+
+        @Test("Blocks: she hits me")
+        func testSheHitsMe() {
+            let result = agent.gate("She hits me all the time")
+            #expect(result == .block(reason: "safety_block_abuse"))
+        }
+
+        @Test("Blocks: afraid to go home")
+        func testAfraidToGoHome() {
+            let result = agent.gate("I'm afraid to go home tonight")
+            #expect(result == .block(reason: "safety_block_abuse"))
+        }
+
+        @Test("Blocks: being abused")
+        func testBeingAbused() {
+            let result = agent.gate("I think I'm being abused")
+            #expect(result == .block(reason: "safety_block_abuse"))
+        }
+
+        @Test("Blocks: hurting me")
+        func testHurtingMe() {
+            let result = agent.gate("My partner keeps hurting me")
+            #expect(result == .block(reason: "safety_block_abuse"))
+        }
+
+        @Test("Blocks: domestic violence")
+        func testDomesticViolence() {
+            let result = agent.gate("I'm in a domestic violence situation")
+            #expect(result == .block(reason: "safety_block_abuse"))
+        }
+
+        @Test("Allows: my brother hits the gym (false positive)")
+        func testHitsTheGym() {
+            let result = agent.gate("My brother hits the gym every morning")
+            #expect(result == .allow)
+        }
+
+        @Test("Allows: she hits the books")
+        func testHitsTheBooks() {
+            let result = agent.gate("She really hits the books before exams")
+            #expect(result == .allow)
+        }
+
+        @Test("Allows: hits different")
+        func testHitsDifferent() {
+            let result = agent.gate("Coffee in the morning just hits different")
             #expect(result == .allow)
         }
     }
@@ -333,6 +522,60 @@ struct SafetyAgentTests {
         @Test("Contains reassurance")
         func testReassurance() {
             #expect(SafetyAgent.deescalationResponse.contains("You don't have to go through this alone"))
+        }
+    }
+
+    // MARK: - Abuse De-escalation Response
+
+    @Suite("Abuse De-escalation Response")
+    struct AbuseDeescalationResponseTests {
+
+        @Test("Contains DV hotline number 1-800-799-7233")
+        func testContainsDVHotline() {
+            #expect(SafetyAgent.abuseDeescalationResponse.contains("1-800-799-7233"))
+        }
+
+        @Test("Contains text START to 88788")
+        func testContainsTextSTART() {
+            #expect(SafetyAgent.abuseDeescalationResponse.contains("START"))
+            #expect(SafetyAgent.abuseDeescalationResponse.contains("88788"))
+        }
+
+        @Test("Contains 988 lifeline")
+        func testContains988() {
+            #expect(SafetyAgent.abuseDeescalationResponse.contains("988"))
+        }
+
+        @Test("Contains findahelpline.com")
+        func testContainsFindAHelpline() {
+            #expect(SafetyAgent.abuseDeescalationResponse.contains("findahelpline.com"))
+        }
+
+        @Test("Contains empathetic safety message")
+        func testContainsSafetyMessage() {
+            #expect(SafetyAgent.abuseDeescalationResponse.contains("deserve to be safe"))
+        }
+
+        @Test("Contains reassurance")
+        func testReassurance() {
+            #expect(SafetyAgent.abuseDeescalationResponse.contains("You don't have to go through this alone"))
+        }
+    }
+
+    // MARK: - Substance Abuse De-escalation Response
+
+    @Suite("Substance Abuse De-escalation Response")
+    struct SubstanceAbuseDeescalationResponseTests {
+
+        @Test("Contains SAMHSA helpline")
+        func testContainsSAMHSA() {
+            #expect(SafetyAgent.substanceAbuseDeescalationResponse.contains("SAMHSA"))
+            #expect(SafetyAgent.substanceAbuseDeescalationResponse.contains("1-800-662-4357"))
+        }
+
+        @Test("Contains 988 lifeline")
+        func testContains988() {
+            #expect(SafetyAgent.substanceAbuseDeescalationResponse.contains("988"))
         }
     }
 
@@ -415,6 +658,16 @@ struct SafetyAgentTests {
         func testSubstringMatch() {
             let result = agent.gate("Feeling suicidal thoughts today")
             #expect(result == .block(reason: "safety_block_suicide"))
+        }
+
+        @Test("Abuse de-escalation response does not trigger PII")
+        func testAbuseResponseNoPII() {
+            // The abuse de-escalation response contains phone numbers that
+            // should be treated as safe crisis hotline numbers, not PII
+            let result = agent.gate(SafetyAgent.abuseDeescalationResponse)
+            // The response contains "deserve to be safe" not crisis keywords,
+            // so it should pass through (or at least not block on PII)
+            #expect(result != .block(reason: "pii_phone"))
         }
     }
 }

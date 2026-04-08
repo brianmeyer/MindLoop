@@ -23,6 +23,7 @@ struct FeedbackButtons: View {
                     .foregroundStyle(selected == .thumbsUp ? Color("Primary") : Color("MutedForeground"))
             }
             .accessibilityLabel("Thumbs up — helpful response")
+            .accessibilityHint("Rate this coach response as helpful")
 
             Button {
                 selected = .thumbsDown
@@ -33,6 +34,7 @@ struct FeedbackButtons: View {
                     .foregroundStyle(selected == .thumbsDown ? Color("Destructive") : Color("MutedForeground"))
             }
             .accessibilityLabel("Thumbs down — not helpful")
+            .accessibilityHint("Rate this coach response as not helpful")
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.2), value: selected)

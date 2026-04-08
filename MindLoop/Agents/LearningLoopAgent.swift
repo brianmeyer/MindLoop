@@ -59,7 +59,9 @@ struct LearningLoopAgent: AgentProtocol, Sendable {
 
         applyFeedback(input.feedback, response: input.response, to: &profile)
 
-        let updatedRecord = PersonalizationProfileRecord.from(profile)
+        let existingRecord = try? database.fetchProfile()
+        var updatedRecord = PersonalizationProfileRecord.from(profile)
+        updatedRecord.userName = existingRecord?.userName ?? ""
         try database.saveProfile(updatedRecord)
 
         return profile
@@ -230,7 +232,8 @@ extension PersonalizationProfileRecord {
             responseLength: length,
             emotionTriggers: triggers,
             avoidTopics: avoid,
-            preferredActions: actions
+            preferredActions: actions,
+            moodValue: moodValue
         )
     }
 
@@ -243,7 +246,9 @@ extension PersonalizationProfileRecord {
             emotionTriggers: encodeJSON(profile.emotionTriggers),
             avoidTopics: encodeJSON(profile.avoidTopics),
             preferredActions: encodeJSON(profile.preferredActions.map(\.rawValue)),
-            lastUpdated: profile.lastUpdated
+            lastUpdated: profile.lastUpdated,
+            userName: "",
+            moodValue: profile.moodValue
         )
     }
 

@@ -40,11 +40,20 @@ final class AppDatabase: Sendable {
 
             var config = Configuration()
             config.foreignKeysEnabled = true
+            #if DEBUG
             config.prepareDatabase { db in
                 db.trace { print("SQL: \($0)") }
             }
+            #endif
 
             let dbQueue = try DatabaseQueue(path: url.path, configuration: config)
+
+            // Set file protection after file is created
+            try? FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.complete],
+                ofItemAtPath: url.path
+            )
+
             return try AppDatabase(dbQueue)
         } catch {
             fatalError("Failed to initialize database: \(error)")
@@ -152,6 +161,62 @@ final class AppDatabase: Sendable {
 
             try db.create(index: "idx_emotionEdge_from", on: "emotionEdge", columns: ["fromId"])
             try db.create(index: "idx_emotionEdge_to", on: "emotionEdge", columns: ["toId"])
+        }
+
+        // v3: Add userName to personalization profile
+        migrator.registerMigration("v3_userName") { db in
+            try db.alter(table: "personalizationProfile") { t in
+                t.add(column: "userName", .text).notNull().defaults(to: "")
+            }
+        }
+
+        // v4: Add moodValue to personalizationProfile (REC-277)
+        migrator.registerMigration("v4_mood_value") { db in
+            try db.alter(table: "personalizationProfile") { t in
+                t.add(column: "moodValue", .double).notNull().defaults(to: 0.5)
+            }
+        }
+
+        // v5: FTS5 full-text search for BM25 fallback
+        migrator.registerMigration("v5_fts") { db in
+            // Create FTS5 virtual table backed by journalEntry content
+            try db.execute(sql: """
+                CREATE VIRTUAL TABLE IF NOT EXISTS journalEntry_fts
+                USING fts5(text, content='journalEntry', content_rowid='rowid')
+            """)
+
+            // Populate FTS index from existing entries
+            try db.execute(sql: """
+                INSERT INTO journalEntry_fts(journalEntry_fts) VALUES('rebuild')
+            """)
+
+            // Keep FTS index synced on INSERT
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS journalEntry_fts_insert
+                AFTER INSERT ON journalEntry
+                BEGIN
+                    INSERT INTO journalEntry_fts(rowid, text) VALUES (new.rowid, new.text);
+                END
+            """)
+
+            // Keep FTS index synced on DELETE
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS journalEntry_fts_delete
+                AFTER DELETE ON journalEntry
+                BEGIN
+                    INSERT INTO journalEntry_fts(journalEntry_fts, rowid, text) VALUES('delete', old.rowid, old.text);
+                END
+            """)
+
+            // Keep FTS index synced on UPDATE
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS journalEntry_fts_update
+                AFTER UPDATE ON journalEntry
+                BEGIN
+                    INSERT INTO journalEntry_fts(journalEntry_fts, rowid, text) VALUES('delete', old.rowid, old.text);
+                    INSERT INTO journalEntry_fts(rowid, text) VALUES (new.rowid, new.text);
+                END
+            """)
         }
 
         return migrator
@@ -264,3 +329,18 @@ extension AppDatabase {
     }
 }
 
+// MARK: - Data Management
+
+extension AppDatabase {
+    /// Delete all user data from all tables.
+    /// Used by Settings > Clear All Data.
+    func clearAllData() throws {
+        try dbQueue.write { db in
+            try JournalEntryRecord.deleteAll(db)
+            try SemanticChunkRecord.deleteAll(db)
+            try PersonalizationProfileRecord.deleteAll(db)
+            try EmotionNodeRecord.deleteAll(db)
+            try EmotionEdgeRecord.deleteAll(db)
+        }
+    }
+}

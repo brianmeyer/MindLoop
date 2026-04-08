@@ -33,7 +33,7 @@ struct ModelRuntimeTests {
     func testLoadGemmaModel() async throws {
         let runtime = ModelRuntime.shared
 
-        try await runtime.loadModel(from: "gemma-4-e2b-it-4bit")
+        try await runtime.loadModel(modelPath: "gemma-4-e2b-it-4bit")
 
         #expect(runtime.isLoaded == true)
         #expect(runtime.memoryUsageMB > 0)
@@ -44,7 +44,7 @@ struct ModelRuntimeTests {
         let runtime = ModelRuntime.shared
 
         if !runtime.isLoaded {
-            try await runtime.loadModel(from: "gemma-4-e2b-it-4bit")
+            try await runtime.loadModel(modelPath: "gemma-4-e2b-it-4bit")
         }
 
         var fullResponse = ""
@@ -89,7 +89,7 @@ struct ModelRuntimeTests {
         let runtime = ModelRuntime.shared
 
         if !runtime.isLoaded {
-            try await runtime.loadModel(from: "gemma-4-e2b-it-4bit")
+            try await runtime.loadModel(modelPath: "gemma-4-e2b-it-4bit")
         }
 
         #expect(runtime.memoryUsageMB <= 2000, "Memory \(runtime.memoryUsageMB)MB exceeds 2GB budget")

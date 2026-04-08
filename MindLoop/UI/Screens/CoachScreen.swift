@@ -125,12 +125,14 @@ struct CoachScreen: View {
             Text("Coach")
                 .typography(.subheading)
                 .foregroundStyle(Color("Foreground"))
+                .accessibilityAddTraits(.isHeader)
 
             Spacer()
 
             // Balance the leading button
             Color.clear
                 .frame(width: Dimensions.iconButton)
+                .accessibilityHidden(true)
         }
         .padding(Spacing.l)
         .overlay(alignment: .bottom) {
@@ -196,6 +198,7 @@ struct CoachScreen: View {
         .background(Color("Muted"))
         .cornerRadius(CornerRadius.l)
         .accessibilityLabel("Coach is thinking")
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     // MARK: - Response Card (typewriter)
@@ -209,6 +212,7 @@ struct CoachScreen: View {
             .background(Color("Muted"))
             .cornerRadius(CornerRadius.l)
             .accessibilityLabel("Coach response: \(orchestrator.streamingText)")
+            .accessibilityAddTraits(.updatesFrequently)
     }
 
     /// Substring of streamingText up to `revealedCount` characters.
@@ -297,6 +301,7 @@ struct CoachScreen: View {
                 Text("Was this helpful?")
                     .typography(.small)
                     .foregroundStyle(Color("MutedForeground"))
+                    .accessibilityAddTraits(.isHeader)
 
                 HStack(spacing: Spacing.base) {
                     feedbackButton(

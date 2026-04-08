@@ -47,11 +47,11 @@ final class BM25Service: Sendable {
             guard ftsExists > 0 else { return [] }
 
             let rows = try Row.fetchAll(db, sql: """
-                SELECT fts.id,
+                SELECT j.id,
                        bm25(journalEntry_fts) AS bm25_score,
                        j.timestamp
                 FROM journalEntry_fts fts
-                JOIN journalEntry j ON fts.id = j.id
+                JOIN journalEntry j ON j.rowid = fts.rowid
                 WHERE journalEntry_fts MATCH ?
                 ORDER BY bm25_score
                 LIMIT ?

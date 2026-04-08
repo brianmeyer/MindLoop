@@ -19,7 +19,7 @@ import Foundation
 /// that follows the CBT micro-flow. Responses are streamed token-by-token
 /// for real-time UI updates.
 ///
-/// - Model: Gemma 4 E2B-it (MLX 4-bit) via ``ModelRuntime``
+/// - Model: Gemma 4 E2B-it (MediaPipe 2-bit) via ``ModelRuntime``
 /// - Constraint: ~80-120 tokens (enforced by Orchestrator post-processing)
 struct CoachAgent: AgentProtocol, Sendable {
 

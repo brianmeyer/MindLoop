@@ -7,16 +7,18 @@
 //
 
 import Foundation
+import os
 
-/// Embedding generation agent using bge-small-en-v1.5 via MLXEmbedders
-final class EmbeddingAgent: AgentProtocol, @unchecked Sendable {
+/// Embedding generation agent using bge-small-en-v1.5 via MLXEmbedders.
+/// Actor isolation eliminates the data race that @unchecked Sendable was hiding.
+actor EmbeddingAgent: AgentProtocol {
 
     // MARK: - AgentProtocol
 
     typealias Input = String
     typealias Output = [Float]
 
-    var name: String { "EmbeddingAgent" }
+    nonisolated var name: String { "EmbeddingAgent" }
 
     /// Satisfy `AgentProtocol.process(_:)` by delegating to the convenience method.
     func process(_ input: String) async throws -> [Float] {
@@ -28,7 +30,10 @@ final class EmbeddingAgent: AgentProtocol, @unchecked Sendable {
     /// Shared singleton instance
     static let shared = EmbeddingAgent()
 
-    private let modelRuntime = ModelRuntime.shared
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.lycan.MindLoop",
+        category: "EmbeddingAgent"
+    )
 
     private init() {}
 
@@ -42,7 +47,10 @@ final class EmbeddingAgent: AgentProtocol, @unchecked Sendable {
             throw EmbeddingError.emptyText
         }
 
-        return try await modelRuntime.generateEmbedding(text: text)
+        return try await MainActor.run {
+            // Access @MainActor-isolated ModelRuntime on the main actor
+            ModelRuntime.shared
+        }.generateEmbedding(text: text)
     }
 
     // MARK: - Batch Processing
@@ -85,9 +93,10 @@ final class EmbeddingAgent: AgentProtocol, @unchecked Sendable {
 
     // MARK: - Background Queue
 
-    /// Enqueue entry for background embedding with automatic chunking
-    func enqueueBackground(entry: JournalEntry, completion: @escaping (Int) -> Void) {
-        Task.detached(priority: .background) {
+    /// Enqueue entry for background embedding with automatic chunking.
+    /// Actor isolation handles concurrency; no Task.detached needed by callers.
+    func enqueueBackground(entry: JournalEntry, completion: @escaping @Sendable (Int) -> Void) {
+        Task(priority: .background) {
             do {
                 let chunkEmbeddings = try await self.generateForEntry(entry: entry)
 
@@ -101,7 +110,7 @@ final class EmbeddingAgent: AgentProtocol, @unchecked Sendable {
                 let chunkCount = chunkEmbeddings.count
                 await MainActor.run { completion(chunkCount) }
             } catch {
-                print("EmbeddingAgent: Background embedding failed: \(error)")
+                Self.logger.error("Background embedding failed: \(error.localizedDescription)")
                 await MainActor.run { completion(0) }
             }
         }

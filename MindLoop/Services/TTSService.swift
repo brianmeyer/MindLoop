@@ -8,11 +8,16 @@
 
 import Foundation
 import AVFoundation
+import os
 
 /// Text-to-speech service for voice output
 @MainActor
 @Observable
 final class TTSService: NSObject {
+    // MARK: - Logger
+
+    private static let logger = Logger(subsystem: "com.lycan.MindLoop", category: "TTSService")
+
     // MARK: - Properties
 
     /// Shared singleton instance
@@ -63,7 +68,7 @@ final class TTSService: NSObject {
         progress = 0.0
         synthesizer.speak(utterance)
 
-        print("TTSService: Speaking \(text.count) characters...")
+        Self.logger.debug("Speaking \(text.count) chars")
     }
 
     /// Stop speaking immediately
@@ -71,19 +76,19 @@ final class TTSService: NSObject {
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
         progress = 0.0
-        print("TTSService: Stopped")
+        Self.logger.debug("Stopped")
     }
 
     /// Pause speaking
     func pause() {
         synthesizer.pauseSpeaking(at: .word)
-        print("TTSService: Paused")
+        Self.logger.debug("Paused")
     }
 
     /// Resume speaking
     func resume() {
         synthesizer.continueSpeaking()
-        print("TTSService: Resumed")
+        Self.logger.debug("Resumed")
     }
 
     // MARK: - Voice Management
@@ -120,7 +125,7 @@ extension TTSService: AVSpeechSynthesizerDelegate {
     ) {
         Task { @MainActor in
             isSpeaking = true
-            print("TTSService: Started speaking")
+            Self.logger.debug("Started speaking")
         }
     }
 
@@ -131,7 +136,7 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         Task { @MainActor in
             isSpeaking = false
             progress = 1.0
-            print("TTSService: Finished speaking")
+            Self.logger.debug("Finished speaking")
         }
     }
 
@@ -140,7 +145,7 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         didPause utterance: AVSpeechUtterance
     ) {
         Task { @MainActor in
-            print("TTSService: Paused at progress \(progress)")
+            Self.logger.debug("Paused at progress \(self.progress)")
         }
     }
 
@@ -149,7 +154,7 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         didContinue utterance: AVSpeechUtterance
     ) {
         Task { @MainActor in
-            print("TTSService: Resumed")
+            Self.logger.debug("Resumed from pause")
         }
     }
 
@@ -159,7 +164,7 @@ extension TTSService: AVSpeechSynthesizerDelegate {
     ) {
         Task { @MainActor in
             isSpeaking = false
-            print("TTSService: Cancelled")
+            Self.logger.debug("Cancelled")
         }
     }
 

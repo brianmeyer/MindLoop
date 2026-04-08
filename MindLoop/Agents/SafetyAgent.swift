@@ -3,11 +3,13 @@
 //  MindLoop
 //
 //  Final safety gate: checks coach responses for crisis keywords,
-//  PII patterns, and medical boundary violations before delivery.
+//  PII patterns, medical boundary violations, substance abuse,
+//  and abuse detection before delivery.
 //  Source: CLAUDE.md - SafetyAgent contract
 //
 
 import Foundation
+import os
 
 // MARK: - SafetyAgent
 
@@ -15,7 +17,12 @@ import Foundation
 ///
 /// The SafetyAgent is **non-overridable**: no other agent (including
 /// LearningLoopAgent or personalization) may bypass a `.block` decision.
-struct SafetyAgent: AgentProtocol {
+struct SafetyAgent: AgentProtocol, Sendable {
+
+    private static let logger = Logger(
+        subsystem: "com.lycan.MindLoop",
+        category: "SafetyAgent"
+    )
 
     // MARK: - AgentProtocol
 
@@ -40,18 +47,43 @@ struct SafetyAgent: AgentProtocol {
             "not worth living",
             "suicide",
             "suicidal",
+            "want to die",
+            "better off dead",
         ],
         "self_harm": [
             "cut myself",
             "hurt myself",
             "self-harm",
             "self harm",
+            "burn myself",
+            "starve myself",
         ],
         "crisis": [
             "can't go on",
             "no way out",
             "no reason to live",
+            "give up",
+            "can't take it anymore",
         ],
+    ]
+
+    /// Substance abuse keywords that require context-aware matching
+    static let substanceAbuseKeywords: [String] = [
+        "can't stop drinking",
+        "overdose",
+        "need to get high",
+        "withdrawal symptoms",
+        "addicted to",
+    ]
+
+    /// Abuse keywords that trigger DV-specific crisis resources
+    static let abuseKeywords: [String] = [
+        "he hits me",
+        "she hits me",
+        "afraid to go home",
+        "being abused",
+        "hurting me",
+        "domestic violence",
     ]
 
     /// Phrases that look like crisis keywords but are benign (false positives).
@@ -70,12 +102,50 @@ struct SafetyAgent: AgentProtocol {
         "killed it",
         "suicide squad",
         "suicide doors",
+        "don't give up",
+        "never give up",
+        "not ready to give up",
+        "won't give up",
+        "refuse to give up",
+    ]
+
+    /// Phrases that look like substance abuse but are benign
+    static let substanceFalsePositives: [String] = [
+        "had a drink",
+        "have a drink",
+        "grab a drink",
+        "went for drinks",
+        "drinks with",
+        "a drink with",
+        "social drinking",
+        "stop drinking coffee",
+        "stop drinking soda",
+        "stop drinking caffeine",
+    ]
+
+    /// Phrases that look like abuse keywords but are benign
+    static let abuseFalsePositives: [String] = [
+        "hits the gym",
+        "hits the road",
+        "hits the books",
+        "hits the mark",
+        "hits the spot",
+        "hits the ball",
+        "hits the target",
+        "hits the nail",
+        "hits different",
+        "hits home",
     ]
 
     // MARK: - Medical Boundary Patterns
 
     /// Phrases indicating the response attempts to diagnose or prescribe
     static let medicalBoundaryPhrases: [String] = [
+        "you have depression",
+        "you have anxiety",
+        "you have ptsd",
+        "you have bipolar",
+        "you have adhd",
         "you have",
         "you might have",
         "you may have",
@@ -85,7 +155,11 @@ struct SafetyAgent: AgentProtocol {
         "diagnosis of",
         "you are suffering from",
         "you suffer from",
+        "you should take",
+        "i diagnose",
+        "your diagnosis is",
         "prescribe",
+        "you need medication",
         "medication",
         "take pills",
     ]
@@ -104,35 +178,29 @@ struct SafetyAgent: AgentProtocol {
         "you have a lot",
         "you have so much",
         "you have what it takes",
+        "i feel depressed",
+        "feeling depressed",
+        "i'm depressed",
+        "i am depressed",
+        "feel anxious",
+        "feeling anxious",
     ]
 
-    // MARK: - PII Regex Patterns
+    // MARK: - PII Regex Patterns (Swift Regex)
 
     /// Email address pattern
-    static let emailPattern = try! NSRegularExpression(
-        pattern: #"\S+@\S+\.\S+"#,
-        options: .caseInsensitive
-    )
+    static let emailRegex = /\S+@\S+\.\S+/
 
     /// US phone number pattern (e.g., 555-123-4567, 555.123.4567, 555 123 4567)
-    static let phonePattern = try! NSRegularExpression(
-        pattern: #"\d{3}[-.\s]?\d{3}[-.\s]?\d{4}"#,
-        options: []
-    )
+    static let phoneRegex = /\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/
 
     /// SSN pattern (e.g., 123-45-6789)
-    static let ssnPattern = try! NSRegularExpression(
-        pattern: #"\d{3}-\d{2}-\d{4}"#,
-        options: []
-    )
+    static let ssnRegex = /\d{3}-\d{2}-\d{4}/
 
     /// Credit card pattern (13-19 consecutive digits, optionally separated by spaces or dashes)
-    static let creditCardPattern = try! NSRegularExpression(
-        pattern: #"\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{1,7}"#,
-        options: []
-    )
+    static let creditCardRegex = /\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{1,7}/
 
-    // MARK: - De-escalation Response
+    // MARK: - De-escalation Responses
 
     /// Templated de-escalation response shown when a crisis keyword is detected
     static let deescalationResponse: String = """
@@ -141,6 +209,37 @@ struct SafetyAgent: AgentProtocol {
 
         Please reach out to someone who can help right now:
 
+        National Suicide Prevention Lifeline: 988
+        Crisis Text Line: Text HOME to 741741
+        International: findahelpline.com
+
+        You don't have to go through this alone.
+        """
+
+    /// De-escalation response for abuse/domestic violence situations
+    static let abuseDeescalationResponse: String = """
+        I hear you, and I want you to know that what you're describing \
+        is not okay. You deserve to be safe.
+
+        Please reach out to someone who can help right now:
+
+        National Domestic Violence Hotline: 1-800-799-7233
+        Text START to 88788
+        National Suicide Prevention Lifeline: 988
+        Crisis Text Line: Text HOME to 741741
+        International: findahelpline.com
+
+        You don't have to go through this alone.
+        """
+
+    /// De-escalation response for substance abuse crisis
+    static let substanceAbuseDeescalationResponse: String = """
+        I hear that you're going through a really tough time. While I'm here \
+        to support your reflection, I'm not equipped for crisis situations.
+
+        Please reach out to someone who can help right now:
+
+        SAMHSA National Helpline: 1-800-662-4357
         National Suicide Prevention Lifeline: 988
         Crisis Text Line: Text HOME to 741741
         International: findahelpline.com
@@ -164,16 +263,31 @@ struct SafetyAgent: AgentProtocol {
 
         // 1. Check for PII first (most concrete patterns)
         if let piiReason = checkPII(text) {
+            Self.logger.info("Safety gate blocked: \(piiReason, privacy: .public)")
             return .block(reason: piiReason)
         }
 
         // 2. Check crisis keywords (after removing false positive phrases)
         if let crisisReason = checkCrisisKeywords(lowered) {
+            Self.logger.info("Safety gate blocked: \(crisisReason, privacy: .public)")
             return .block(reason: crisisReason)
         }
 
-        // 3. Check medical boundary
+        // 3. Check abuse keywords
+        if let abuseReason = checkAbuseKeywords(lowered) {
+            Self.logger.info("Safety gate blocked: \(abuseReason, privacy: .public)")
+            return .block(reason: abuseReason)
+        }
+
+        // 4. Check substance abuse keywords (context-aware)
+        if let substanceReason = checkSubstanceAbuse(lowered) {
+            Self.logger.info("Safety gate blocked: \(substanceReason, privacy: .public)")
+            return .block(reason: substanceReason)
+        }
+
+        // 5. Check medical boundary
         if let medicalReason = checkMedicalBoundary(lowered) {
+            Self.logger.info("Safety gate blocked: \(medicalReason, privacy: .public)")
             return .block(reason: medicalReason)
         }
 
@@ -182,35 +296,41 @@ struct SafetyAgent: AgentProtocol {
 
     // MARK: - Private Checks
 
-    /// Check for PII patterns (email, phone, SSN)
+    /// Check for PII patterns (email, phone, SSN, credit card)
     private func checkPII(_ text: String) -> String? {
-        let range = NSRange(text.startIndex..., in: text)
-
-        if Self.emailPattern.firstMatch(in: text, range: range) != nil {
+        if text.firstMatch(of: Self.emailRegex) != nil {
             return "pii_email"
         }
 
-        // Check credit cards before phone numbers — a 16-digit card number
+        // Check credit cards before phone numbers -- a 16-digit card number
         // contains substrings that match the 10-digit phone pattern
-        if Self.creditCardPattern.firstMatch(in: text, range: range) != nil {
+        if text.firstMatch(of: Self.creditCardRegex) != nil {
             return "pii_credit_card"
         }
 
         // For phone numbers, exclude known safe numbers (crisis lines)
-        let phoneMatches = Self.phonePattern.matches(in: text, range: range)
-        for match in phoneMatches {
-            if let matchRange = Range(match.range, in: text) {
-                let matched = String(text[matchRange])
-                // Allow crisis hotline numbers
-                let safeNumbers = ["741741", "988"]
-                let isSafe = safeNumbers.contains(where: { matched.contains($0) })
-                if !isSafe {
-                    return "pii_phone"
-                }
+        let safeNumbers = ["741741", "988", "8007997233", "8006624357", "88788"]
+        var searchText = text
+        while let match = searchText.firstMatch(of: Self.phoneRegex) {
+            let matched = String(searchText[match.range])
+            let digitsOnly = matched.filter(\.isNumber)
+            let isSafe = safeNumbers.contains(where: { digitsOnly.contains($0) })
+            if !isSafe {
+                return "pii_phone"
+            }
+            // Move past this match
+            if let afterIndex = searchText.index(
+                match.range.upperBound,
+                offsetBy: 0,
+                limitedBy: searchText.endIndex
+            ) {
+                searchText = String(searchText[afterIndex...])
+            } else {
+                break
             }
         }
 
-        if Self.ssnPattern.firstMatch(in: text, range: range) != nil {
+        if text.firstMatch(of: Self.ssnRegex) != nil {
             return "pii_ssn"
         }
 
@@ -233,6 +353,48 @@ struct SafetyAgent: AgentProtocol {
                 if sanitized.contains(keyword) {
                     return "safety_block_\(category)"
                 }
+            }
+        }
+
+        return nil
+    }
+
+    /// Check for abuse keywords, accounting for false positives (e.g., "hits the gym")
+    private func checkAbuseKeywords(_ lowered: String) -> String? {
+        var sanitized = lowered
+        for phrase in Self.abuseFalsePositives {
+            sanitized = sanitized.replacingOccurrences(
+                of: phrase,
+                with: String(repeating: " ", count: phrase.count)
+            )
+        }
+
+        for keyword in Self.abuseKeywords {
+            if sanitized.contains(keyword) {
+                return "safety_block_abuse"
+            }
+        }
+
+        return nil
+    }
+
+    /// Check for substance abuse keywords with context-aware matching.
+    ///
+    /// Casual mentions like "had a drink with friends" are allowed,
+    /// while active crisis language like "can't stop drinking every night" is blocked.
+    private func checkSubstanceAbuse(_ lowered: String) -> String? {
+        // Mask out false-positive substance phrases before checking
+        var sanitized = lowered
+        for phrase in Self.substanceFalsePositives {
+            sanitized = sanitized.replacingOccurrences(
+                of: phrase,
+                with: String(repeating: " ", count: phrase.count)
+            )
+        }
+
+        for keyword in Self.substanceAbuseKeywords {
+            if sanitized.contains(keyword) {
+                return "safety_block_substance_abuse"
             }
         }
 

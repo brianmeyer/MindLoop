@@ -31,6 +31,9 @@ struct TimerBadge: View {
         .padding(.vertical, Spacing.xs)
         .background(Color("Muted"))
         .cornerRadius(CornerRadius.pill)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Recording time: \(formattedTime)")
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 

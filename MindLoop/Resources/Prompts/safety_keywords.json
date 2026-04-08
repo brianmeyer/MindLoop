@@ -1,5 +1,8 @@
 {
-  "suicide": ["kill myself", "end it all", "ending it all", "not worth living", "suicide", "suicidal"],
-  "self_harm": ["cut myself", "hurt myself", "self-harm", "self harm"],
-  "crisis": ["can't go on", "no way out", "no reason to live"]
+  "suicide": ["kill myself", "end it all", "ending it all", "not worth living", "suicide", "suicidal", "want to die", "better off dead"],
+  "self_harm": ["cut myself", "hurt myself", "self-harm", "self harm", "burn myself", "starve myself"],
+  "crisis": ["can't go on", "no way out", "no reason to live", "give up", "can't take it anymore"],
+  "medical": ["you have depression", "you should take", "I diagnose", "your diagnosis is", "prescribe", "you need medication"],
+  "substance_abuse": ["can't stop drinking", "overdose", "need to get high", "withdrawal symptoms", "addicted to"],
+  "abuse": ["he hits me", "she hits me", "afraid to go home", "being abused", "hurting me", "domestic violence"]
 }

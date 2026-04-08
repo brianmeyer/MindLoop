@@ -32,10 +32,10 @@ struct EmotionSignal: Codable, Equatable, Sendable {
         /// Color associated with this emotion (for badges, charts)
         var colorName: String {
             switch self {
-            case .neutral: return "MutedForeground"
-            case .positive: return "Accent" 
-            case .anxious: return "Destructive"
-            case .sad: return "Primary"
+            case .neutral: return "EmotionNeutral"
+            case .positive: return "EmotionPositive"
+            case .anxious: return "EmotionAnxious"
+            case .sad: return "EmotionSad"
             }
         }
     }

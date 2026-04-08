@@ -19,24 +19,37 @@ enum Typography {
     case heading      // 24pt (--text-2xl)
     case largeTitle   // 36pt (--text-4xl)
 
-    /// Get the Font for this typography style
-    var font: Font {
+    /// The semantic text style this typography maps to for Dynamic Type scaling
+    var textStyle: Font.TextStyle {
         switch self {
-        case .caption:
-            return .system(size: 12, weight: .regular)
-        case .small:
-            return .system(size: 14, weight: .regular)
-        case .body:
-            return .system(size: 16, weight: .regular)
-        case .emphasized:
-            return .system(size: 18, weight: .medium)
-        case .subheading:
-            return .system(size: 20, weight: .semibold)
-        case .heading:
-            return .system(size: 24, weight: .semibold)
-        case .largeTitle:
-            return .system(size: 36, weight: .bold)
+        case .caption:     return .caption      // ~12pt base
+        case .small:       return .subheadline   // ~14pt base
+        case .body:        return .body          // ~16pt base
+        case .emphasized:  return .headline      // ~18pt base
+        case .subheading:  return .title3        // ~20pt base
+        case .heading:     return .title2        // ~24pt base
+        case .largeTitle:  return .largeTitle    // ~36pt base
         }
+    }
+
+    /// The default weight for this typography style
+    var weight: Font.Weight {
+        switch self {
+        case .caption, .small, .body:
+            return .regular
+        case .emphasized:
+            return .medium
+        case .subheading, .heading:
+            return .semibold
+        case .largeTitle:
+            return .bold
+        }
+    }
+
+    /// Get the Font for this typography style.
+    /// Uses semantic text styles so fonts scale automatically with Dynamic Type.
+    var font: Font {
+        Font.system(textStyle, weight: weight)
     }
 
     /// Line height for this typography style

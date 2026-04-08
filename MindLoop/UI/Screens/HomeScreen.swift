@@ -74,16 +74,20 @@ struct HomeScreen: View {
                 Text(greeting)
                     .typography(.body)
                     .foregroundColor(Color("Foreground"))
+                    .accessibilityAddTraits(.isHeader)
 
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 16))
                         .foregroundColor(Color(red: 0.984, green: 0.749, blue: 0.141)) // #fbbf24
+                        .accessibilityHidden(true)
 
                     Text("\(streak) day streak")
                         .typography(.small)
                         .foregroundColor(Color("MutedForeground"))
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(streak) day streak")
             }
 
             Spacer()
@@ -121,6 +125,7 @@ struct HomeScreen: View {
             Text("Ready for a short check-in?")
                 .typography(.body)
                 .foregroundColor(Color("MutedForeground"))
+                .accessibilityAddTraits(.isHeader)
 
             Button(action: onStartCheckin) {
                 Text("Start journal")
@@ -132,6 +137,8 @@ struct HomeScreen: View {
                     .background(Color("Primary"))
                     .cornerRadius(CornerRadius.extraLarge)
             }
+            .accessibilityLabel("Start journal")
+            .accessibilityHint("Begin a guided journaling check-in")
         }
     }
 
@@ -152,6 +159,8 @@ struct HomeScreen: View {
                 )
                 .cornerRadius(CornerRadius.extraLarge)
         }
+        .accessibilityLabel("Quick feeling dump")
+        .accessibilityHint("Quickly capture how you are feeling right now")
     }
 
     // MARK: - Mood Slider
@@ -161,10 +170,14 @@ struct HomeScreen: View {
             Text("How are you feeling?")
                 .typography(.small)
                 .foregroundColor(Color("MutedForeground"))
+                .accessibilityAddTraits(.isHeader)
 
             // Simple slider placeholder (will create proper MoodSlider component later)
             Slider(value: $moodValue, in: 0...1)
                 .tint(Color("Primary"))
+                .accessibilityLabel("Mood level")
+                .accessibilityValue("\(Int(moodValue * 100)) percent")
+                .accessibilityHint("Adjust to indicate how you are feeling, from low to high")
         }
         .padding(Spacing.base)
         .background(Color("Muted"))
@@ -178,6 +191,7 @@ struct HomeScreen: View {
             HStack(spacing: Spacing.s) {
                 Image(systemName: "heart")
                     .font(.system(size: 20))
+                    .accessibilityHidden(true)
 
                 Text("Add gratitude")
                     .typography(.body)
@@ -194,6 +208,8 @@ struct HomeScreen: View {
                     )
             )
         }
+        .accessibilityLabel("Add gratitude")
+        .accessibilityHint("Record something you are grateful for")
         .scaleEffect(isGratitudePressed ? 0.98 : 1.0)
         .animation(.easeInOut(duration: 0.15), value: isGratitudePressed)
         .simultaneousGesture(
