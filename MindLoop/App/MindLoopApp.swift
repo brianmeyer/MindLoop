@@ -18,6 +18,17 @@ struct MindLoopApp: App {
     @State private var isModelWarmedUp = false
     @State private var warmUpProgress: Double = 0.0
 
+    init() {
+        // XCUITest harness support: when `-UITest 1` is passed as a launch
+        // argument, seed a deterministic state so UI tests don't have to
+        // walk through onboarding on every run. Safe in production builds
+        // because launch arguments are set by the test runner only.
+        if CommandLine.arguments.contains("-UITest") {
+            UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+            UserDefaults.standard.set("Tester", forKey: "userName")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
