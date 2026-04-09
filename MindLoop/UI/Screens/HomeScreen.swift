@@ -21,7 +21,10 @@ struct HomeScreen: View {
     @State private var greeting: String = "Good evening"
     @State private var streak: Int = 7
     @State private var moodValue: Double = 0.5
-    @State private var userName: String = ""
+
+    /// Name the user typed in Settings. SettingsScreen uses the same
+    /// `@AppStorage("userName")` key, so this stays in sync live.
+    @AppStorage("userName") private var settingsUserName: String = ""
 
     // Button press states for scale animations
     @State private var isHistoryPressed = false
@@ -68,8 +71,10 @@ struct HomeScreen: View {
         .onAppear { refreshGreeting() }
     }
 
-    /// Build the greeting from the time of day and the user's name from
-    /// PersonalizationProfile. Falls back to no-name if profile is empty.
+    /// Build the greeting from the time of day and the user's name.
+    /// Prefers the Settings @AppStorage value (most recent edit) and
+    /// falls back to the PersonalizationProfile DB record if Settings
+    /// is empty (e.g. name was set during onboarding but never edited).
     private func refreshGreeting() {
         let hour = Calendar.current.component(.hour, from: Date())
         let timeOfDay: String
@@ -80,15 +85,14 @@ struct HomeScreen: View {
         default:      timeOfDay = "Hi there"
         }
 
-        // Load userName directly from the DB record — the domain
-        // PersonalizationProfile doesn't surface userName today.
-        let loadedName: String
-        if let record = try? AppDatabase.shared.fetchProfile() {
+        // 1. Prefer Settings @AppStorage (kept in sync with SettingsScreen)
+        var loadedName = settingsUserName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 2. Fall back to DB record (populated by OnboardingView)
+        if loadedName.isEmpty,
+           let record = try? AppDatabase.shared.fetchProfile() {
             loadedName = record.userName.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
-            loadedName = ""
         }
-        userName = loadedName
 
         if loadedName.isEmpty {
             greeting = timeOfDay
