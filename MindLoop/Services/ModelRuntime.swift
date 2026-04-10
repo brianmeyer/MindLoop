@@ -15,11 +15,7 @@ import MLX
 import MLXLLM
 import MLXLMCommon
 import MLXEmbedders
-// `@preconcurrency` suppresses Sendable warnings from the HuggingFace
-// swift-transformers Tokenizer types we bridge into `MLXLMCommon.Tokenizer`.
-// Under Swift 6 the upstream `any Tokenizer` is non-Sendable, but our
-// TokenizerBridge is only read from `@MainActor`-isolated code and the MLX
-// ModelContainer's internal isolated queue.
+import MLXVLM
 @preconcurrency import Tokenizers
 #endif
 
@@ -146,10 +142,18 @@ final class ModelRuntime {
             // Set GPU cache limit (20MB) — updated API per mlx-swift docs.
             MLX.Memory.cacheLimit = 20 * 1024 * 1024
 
+            // Register the vendored Gemma4 VLM model type BEFORE loading.
+            // Gemma 4's config.json has model_type "gemma4" which upstream
+            // mlx-swift-lm doesn't support yet. The vendored files from
+            // eduardogoncalves/mlx-coder register it with VLMTypeRegistry
+            // so loadModelContainer routes through the VLM factory.
+            await Gemma4Registration.shared.register()
+
             let startTime = Date()
 
-            // Load model from local directory. Fully qualified to disambiguate
-            // from MLXEmbedders.loadModelContainer (same name, different container).
+            // Load model container. MLXLMCommon.loadModelContainer tries
+            // VLM factory first (where we just registered gemma4), then
+            // falls back to LLM factory.
             let container = try await MLXLMCommon.loadModelContainer(
                 from: modelURL,
                 using: HuggingFaceTokenizerLoader()

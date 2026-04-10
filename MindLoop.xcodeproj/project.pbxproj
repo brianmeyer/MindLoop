@@ -17,6 +17,7 @@
 		DD000001LM00000000000001 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = DD000002LM00000000000002 /* MLXLLM */; };
 		DD000003LM00000000000003 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = DD000004LM00000000000004 /* MLXLMCommon */; };
 		DD000006LM00000000000006 /* MLXEmbedders in Frameworks */ = {isa = PBXBuildFile; productRef = DD000007LM00000000000007 /* MLXEmbedders */; };
+		DD000008LM00000000000008 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = DD000009LM00000000000009 /* MLXVLM */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,6 +74,7 @@
 				DD000001LM00000000000001 /* MLXLLM in Frameworks */,
 				DD000003LM00000000000003 /* MLXLMCommon in Frameworks */,
 				DD000006LM00000000000006 /* MLXEmbedders in Frameworks */,
+				DD000008LM00000000000008 /* MLXVLM in Frameworks */,
 				BB000001TK00000000000001 /* Transformers in Frameworks */,
 				AA000003GRDB000000000003 /* GRDB in Frameworks */,
 			);
@@ -143,6 +145,7 @@
 				DD000002LM00000000000002 /* MLXLLM */,
 				DD000004LM00000000000004 /* MLXLMCommon */,
 				DD000007LM00000000000007 /* MLXEmbedders */,
+				DD000009LM00000000000009 /* MLXVLM */,
 				BB000002TK00000000000002 /* Transformers */,
 				AA000002GRDB000000000002 /* GRDB */,
 			);
@@ -709,6 +712,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DD000005LM00000000000005 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXEmbedders;
+		};
+		DD000009LM00000000000009 /* MLXVLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DD000005LM00000000000005 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXVLM;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
