@@ -56,6 +56,12 @@ final class ModelRuntime {
     /// each `loadModel` call. (REC-301)
     private(set) var lastLoadError: String?
 
+    /// Guard flag preventing concurrent `loadModel` calls. Two rapid
+    /// taps on the Retry button would otherwise both pass the
+    /// `!isLoaded` guard and fire overlapping MLXLMCommon.loadModelContainer
+    /// calls — the second would compete for memory and likely crash. (REC-301)
+    private(set) var isLoading = false
+
     #if !targetEnvironment(simulator)
     /// LLM model container (Gemma 4 E2B-it, MLX 4-bit, ~1GB)
     private var llmContainer: MLXLMCommon.ModelContainer?
@@ -102,6 +108,14 @@ final class ModelRuntime {
             Self.logger.info("LLM already loaded")
             return
         }
+        // Concurrent-load guard: a rapid double-tap on the overlay's
+        // Retry button could otherwise fire two overlapping MLX loads.
+        guard !isLoading else {
+            Self.logger.info("LLM load already in progress — skipping")
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
 
         // Clear any prior failure so the overlay can transition back to
         // the "loading" state on retry. (REC-301)
