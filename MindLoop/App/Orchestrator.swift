@@ -142,7 +142,8 @@ final class Orchestrator {
             // 6. Get personalization profile
             let profile = try database.fetchProfile().toDomain()
 
-            // 7. Generate coach response
+            // 7. Generate coach response with timeout + retry per CLAUDE.md
+            // (3.0s timeout, 1x retry at 1.5s backoff). (REC-306)
             pipelineState = .responding
             let coachInput = CoachAgent.Input(
                 entry: entry,
@@ -151,7 +152,7 @@ final class Orchestrator {
                 profile: profile,
                 currentState: cbtState
             )
-            let response = try await coachAgent.process(coachInput)
+            let response: CoachResponse = try await withCoachTimeout(input: coachInput)
 
             // 8. Safety gate
             let gateResult = safetyAgent.gate(response.text)
@@ -190,6 +191,50 @@ final class Orchestrator {
 
         if pipelineState != .blocked {
             pipelineState = .idle
+        }
+    }
+
+    // MARK: - Coach Timeout (REC-306)
+
+    /// Call CoachAgent with a 3.0s timeout and 1x retry at 1.5s backoff,
+    /// per CLAUDE.md failure/timeout policy. If both attempts fail or
+    /// time out, throws `ModelRuntime.ModelError.timeout`.
+    private func withCoachTimeout(input: CoachAgent.Input) async throws -> CoachResponse {
+        // First attempt — 3.0s
+        let attempt1 = try? await withTimeout(seconds: 3.0) {
+            try await self.coachAgent.process(input)
+        }
+        if let result = attempt1 { return result }
+
+        Self.logger.warning("Coach generation timed out — retrying after 1.5s backoff")
+        try await Task.sleep(for: .seconds(1.5))
+
+        // Retry — 3.0s
+        let attempt2 = try? await withTimeout(seconds: 3.0) {
+            try await self.coachAgent.process(input)
+        }
+        if let result = attempt2 { return result }
+
+        Self.logger.error("Coach generation timed out on retry")
+        throw ModelRuntime.ModelError.timeout
+    }
+
+    /// Run an async operation with a timeout. Returns nil if the timeout
+    /// fires before the operation completes.
+    private func withTimeout<T: Sendable>(
+        seconds: Double,
+        operation: @escaping @Sendable () async throws -> T
+    ) async rethrows -> T? {
+        try await withThrowingTaskGroup(of: T?.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                return nil
+            }
+            // First result wins — either the operation or the timeout
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            return first
         }
     }
 

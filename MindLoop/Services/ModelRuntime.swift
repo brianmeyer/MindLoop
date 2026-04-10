@@ -194,7 +194,6 @@ final class ModelRuntime {
             "tokenizer_config.json",
             "generation_config.json",
             "chat_template.jinja",
-            "processor_config.json",
             "model.safetensors.index.json",
             "model.safetensors",
         ]
