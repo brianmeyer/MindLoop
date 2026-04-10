@@ -151,10 +151,14 @@ final class ModelRuntime {
 
             let startTime = Date()
 
-            // Load model container. MLXLMCommon.loadModelContainer tries
-            // VLM factory first (where we just registered gemma4), then
-            // falls back to LLM factory.
-            let container = try await MLXLMCommon.loadModelContainer(
+            // Load model container via VLMModelFactory directly. The
+            // MLXLMCommon.loadModelContainer trampoline SHOULD route to
+            // VLM, but on-device testing (v13, v14) showed it only tries
+            // LLMModelFactory → unsupportedModelType("gemma4"). Using
+            // VLMModelFactory.shared.loadContainer(from:using:) bypasses
+            // the trampoline and goes straight to the VLM factory where
+            // our registered "gemma4" type IS found.
+            let container = try await VLMModelFactory.shared.loadContainer(
                 from: modelURL,
                 using: HuggingFaceTokenizerLoader()
             )
