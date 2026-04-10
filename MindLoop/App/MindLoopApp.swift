@@ -18,6 +18,11 @@ struct MindLoopApp: App {
     @State private var isModelWarmedUp = false
     @State private var warmUpProgress: Double = 0.0
 
+    /// Human-readable error string from the last warmUpModel attempt.
+    /// Non-nil = the loading overlay stays up with a retry button
+    /// instead of dismissing. (REC-301)
+    @State private var warmUpError: String?
+
     init() {
         // XCUITest harness support: when `-UITest 1` is passed as a launch
         // argument, seed a deterministic state so UI tests don't have to
@@ -42,7 +47,12 @@ struct MindLoopApp: App {
                     ModelLoadingOverlay(
                         downloader: modelDownloader,
                         warmUpProgress: warmUpProgress,
-                        isWarmingUp: modelDownloader.isModelAvailable && !isModelWarmedUp
+                        isWarmingUp: modelDownloader.isModelAvailable && !isModelWarmedUp,
+                        warmUpError: warmUpError,
+                        onRetry: {
+                            warmUpError = nil
+                            Task { await warmUpModel() }
+                        }
                     )
                     .transition(.opacity)
                 }
@@ -75,9 +85,11 @@ struct MindLoopApp: App {
     private func warmUpModel() async {
         #if targetEnvironment(simulator)
         // Skip model loading on simulator
+        warmUpError = nil
         isModelWarmedUp = true
         #else
         let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.mindloop", category: "App")
+        warmUpError = nil
         do {
             // Load the big LLM first (bulk of warmup time).
             try await ModelRuntime.shared.loadModel(
@@ -95,9 +107,17 @@ struct MindLoopApp: App {
             }
             isModelWarmedUp = true
         } catch {
-            logger.error("Model warm-up failed: \(error.localizedDescription)")
-            // Still show the app — features will degrade gracefully
-            isModelWarmedUp = true
+            // REC-301: Keep the overlay visible with the error instead of
+            // silently dismissing and producing a broken coach. User sees
+            // a retry button. The error string is the type + first 100
+            // chars of description — safe per CLAUDE.md privacy policy.
+            let errorType = String(describing: type(of: error))
+            let desc = String(describing: error).prefix(100)
+            warmUpError = "\(errorType): \(desc)"
+            logger.error(
+                "Model warm-up failed (\(errorType, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+            )
+            // Deliberately do NOT set isModelWarmedUp = true.
         }
         #endif
     }
@@ -110,6 +130,10 @@ private struct ModelLoadingOverlay: View {
     let downloader: ModelDownloader
     let warmUpProgress: Double
     let isWarmingUp: Bool
+    /// Non-nil when LLM warmup failed. Overrides the other states. (REC-301)
+    let warmUpError: String?
+    /// Triggered when the user taps the retry button in the warmup-failure state.
+    let onRetry: () -> Void
 
     var body: some View {
         ZStack {
@@ -144,31 +168,74 @@ private struct ModelLoadingOverlay: View {
 
     @ViewBuilder
     private var statusContent: some View {
-        switch downloader.state {
-        case .idle, .checking:
-            VStack(spacing: Spacing.m) {
-                ProgressView()
-                    .tint(Color("Primary"))
-                Text("Preparing...")
-                    .typography(.body)
-                    .foregroundStyle(Color("MutedForeground"))
+        // REC-301: warmUpError takes precedence over downloader state —
+        // if the LLM failed to load, show a retry prompt instead of
+        // silently letting the user proceed to a broken coach.
+        if let warmUpError {
+            warmUpFailedContent(message: warmUpError)
+        } else {
+            switch downloader.state {
+            case .idle, .checking:
+                VStack(spacing: Spacing.m) {
+                    ProgressView()
+                        .tint(Color("Primary"))
+                    Text("Preparing...")
+                        .typography(.body)
+                        .foregroundStyle(Color("MutedForeground"))
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Preparing app")
+
+            case .downloading:
+                downloadingContent
+
+            case .ready where isWarmingUp:
+                warmUpContent
+
+            case .ready:
+                // Brief flash before app shows
+                EmptyView()
+
+            case .failed(let message):
+                failedContent(message: message)
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Preparing app")
-
-        case .downloading:
-            downloadingContent
-
-        case .ready where isWarmingUp:
-            warmUpContent
-
-        case .ready:
-            // Brief flash before app shows
-            EmptyView()
-
-        case .failed(let message):
-            failedContent(message: message)
         }
+    }
+
+    /// Shown when `ModelRuntime.loadModel()` throws after the download
+    /// completed. Separate from `.failed` (download failure) because the
+    /// remedy is different: download-retry restarts URLSession, warmup-retry
+    /// restarts MLX model loading without re-downloading. (REC-301)
+    private func warmUpFailedContent(message: String) -> some View {
+        VStack(spacing: Spacing.base) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundStyle(Color("Destructive"))
+                .accessibilityHidden(true)
+
+            Text("AI Model Load Failed")
+                .typography(.heading)
+                .foregroundStyle(Color("Foreground"))
+
+            Text(message)
+                .typography(.small)
+                .foregroundStyle(Color("MutedForeground"))
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
+
+            Button(action: onRetry) {
+                Text("Retry")
+                    .typography(.emphasized)
+                    .foregroundStyle(Color("PrimaryForeground"))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: Dimensions.primaryButtonHeight)
+                    .background(Color("Primary"))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.medium))
+            }
+            .accessibilityLabel("Retry AI model load")
+            .accessibilityHint("Attempts to load the AI model again")
+        }
+        .accessibilityElement(children: .contain)
     }
 
     private var downloadingContent: some View {

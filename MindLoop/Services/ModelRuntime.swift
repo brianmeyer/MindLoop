@@ -50,6 +50,12 @@ final class ModelRuntime {
     /// of each `generate` call.
     private(set) var lastGenerationError: String?
 
+    /// Last error encountered during `loadModel(...)`, if any. Exposed so
+    /// `MindLoopApp` can show a meaningful retry prompt instead of
+    /// silently dismissing the loading overlay. Cleared at the start of
+    /// each `loadModel` call. (REC-301)
+    private(set) var lastLoadError: String?
+
     #if !targetEnvironment(simulator)
     /// LLM model container (Gemma 4 E2B-it, MLX 4-bit, ~1GB)
     private var llmContainer: MLXLMCommon.ModelContainer?
@@ -87,6 +93,7 @@ final class ModelRuntime {
     ) async throws {
         #if targetEnvironment(simulator)
         Self.logger.info("LLM loading skipped on simulator")
+        lastLoadError = nil
         isLoaded = true
         progressHandler?(1.0)
         return
@@ -96,39 +103,87 @@ final class ModelRuntime {
             return
         }
 
-        // Resolve model directory: explicit URL > Bundle fallback
-        let modelURL: URL
-        if let directoryURL = modelDirectoryURL {
-            modelURL = directoryURL
-        } else if let bundleURL = getModelURL(path: modelPath) {
-            modelURL = bundleURL
-        } else {
-            throw ModelError.modelNotFound(path: modelPath)
+        // Clear any prior failure so the overlay can transition back to
+        // the "loading" state on retry. (REC-301)
+        lastLoadError = nil
+
+        do {
+            // Resolve model directory: explicit URL > Bundle fallback
+            let modelURL: URL
+            if let directoryURL = modelDirectoryURL {
+                modelURL = directoryURL
+            } else if let bundleURL = getModelURL(path: modelPath) {
+                modelURL = bundleURL
+            } else {
+                throw ModelError.modelNotFound(path: modelPath)
+            }
+
+            // Verify all required model files are present before MLX
+            // attempts to parse them — produces a clearer error than
+            // a downstream "file not found" surfaced from deep inside
+            // the quantized weight loader. (REC-301)
+            let missing = missingModelFiles(at: modelURL)
+            if !missing.isEmpty {
+                throw ModelError.modelFilesIncomplete(missing: missing)
+            }
+
+            Self.logger.info("Loading Gemma 4 E2B-it from \(modelURL.path)")
+
+            // Set GPU cache limit (20MB) — updated API per mlx-swift docs.
+            MLX.Memory.cacheLimit = 20 * 1024 * 1024
+
+            let startTime = Date()
+
+            // Load model from local directory. Fully qualified to disambiguate
+            // from MLXEmbedders.loadModelContainer (same name, different container).
+            let container = try await MLXLMCommon.loadModelContainer(
+                from: modelURL,
+                using: HuggingFaceTokenizerLoader()
+            )
+            llmContainer = container
+
+            let loadTime = Date().timeIntervalSince(startTime)
+            isLoaded = true
+
+            // Update memory usage
+            updateMemoryUsage()
+
+            Self.logger.info("LLM loaded in \(String(format: "%.2f", loadTime))s, memory: \(self.memoryUsageMB)MB")
+        } catch {
+            // Capture the error so MindLoopApp can show a meaningful retry
+            // prompt instead of silently dismissing the loading overlay.
+            let errorType = String(describing: type(of: error))
+            let desc = String(describing: error).prefix(100)
+            lastLoadError = "\(errorType): \(desc)"
+            Self.logger.error(
+                "LLM load failed (\(errorType, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+            )
+            throw error
         }
-
-        Self.logger.info("Loading Gemma 4 E2B-it from \(modelURL.path)")
-
-        // Set GPU cache limit (20MB) — updated API per mlx-swift docs.
-        MLX.Memory.cacheLimit = 20 * 1024 * 1024
-
-        let startTime = Date()
-
-        // Load model from local directory. Fully qualified to disambiguate
-        // from MLXEmbedders.loadModelContainer (same name, different container).
-        let container = try await MLXLMCommon.loadModelContainer(
-            from: modelURL,
-            using: HuggingFaceTokenizerLoader()
-        )
-        llmContainer = container
-
-        let loadTime = Date().timeIntervalSince(startTime)
-        isLoaded = true
-
-        // Update memory usage
-        updateMemoryUsage()
-
-        Self.logger.info("LLM loaded in \(String(format: "%.2f", loadTime))s, memory: \(self.memoryUsageMB)MB")
         #endif
+    }
+
+    /// Return the list of required Gemma model files that are missing
+    /// from the given directory. Used to produce a clear
+    /// `modelFilesIncomplete` error instead of a cryptic MLX failure
+    /// when the background download was interrupted. (REC-301)
+    private func missingModelFiles(at directory: URL) -> [String] {
+        // Canonical file list — mirrors ModelDownloader.requiredFiles.
+        // Keep in sync if that list changes.
+        let required: [String] = [
+            "config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "generation_config.json",
+            "chat_template.jinja",
+            "processor_config.json",
+            "model.safetensors.index.json",
+            "model.safetensors",
+        ]
+        let fm = FileManager.default
+        return required.filter { name in
+            !fm.fileExists(atPath: directory.appendingPathComponent(name).path)
+        }
     }
 
     /// Load the bge-small-en-v1.5 embedding model bundled in the app.
@@ -457,6 +512,7 @@ final class ModelRuntime {
 extension ModelRuntime {
     enum ModelError: Error, CustomStringConvertible {
         case modelNotFound(path: String)
+        case modelFilesIncomplete(missing: [String])
         case embeddingModelNotLoaded
         case notLoaded
         case loadingFailed(reason: String)
@@ -468,6 +524,8 @@ extension ModelRuntime {
             switch self {
             case .modelNotFound(let path):
                 return "Model not found at path: \(path)"
+            case .modelFilesIncomplete(let missing):
+                return "Model files incomplete: missing \(missing.joined(separator: ", "))"
             case .embeddingModelNotLoaded:
                 return "Embedding model not loaded"
             case .notLoaded:

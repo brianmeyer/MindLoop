@@ -146,50 +146,57 @@ struct EmotionAgent: AgentProtocol, Sendable {
             return (.neutral, 0.0)
         }
 
+        // Precompute hint-word hits — explicit emotion words are strong
+        // signals that should override the NLTagger threshold. (REC-302)
+        let lowered = trimmed.lowercased()
+        let words = lowered.components(separatedBy: .alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        let wordSet = Set(words)
+        let anxiousHits = wordSet.intersection(Self.anxiousHints).count
+        let sadHits = wordSet.intersection(Self.sadHints).count
+        let hasHint = (anxiousHits + sadHits) > 0
+
         let valence = sentimentScore(for: trimmed)
         let magnitude = abs(valence)
 
-        // Positive band — NLTagger handles "I feel great" directly
+        // Positive band — NLTagger handles "I feel great" directly.
+        // Only trust positive if there are no negative hint words (mixed
+        // cases like "I feel great but anxious" prefer the hint path).
+        if valence > Self.valenceThreshold && !hasHint {
+            return (.positive, min(1.0, magnitude))
+        }
+
+        // Hint-driven path: when explicit anxious/sad words are present,
+        // classify on hints regardless of valence magnitude. NLTagger
+        // consistently under-scores phrases like "I'm feeling anxious"
+        // because "feeling" and "I'm" dilute the sentiment toward zero.
+        // Hint confidence blends the hit count with any available
+        // valence magnitude, floored at 0.55 so we never show a limp
+        // "anxious 30%" to a user who literally said "anxious".
+        if hasHint && valence <= 0.1 {
+            let label: EmotionSignal.Label
+            if anxiousHits > sadHits {
+                label = .anxious
+            } else if sadHits > anxiousHits {
+                label = .sad
+            } else {
+                label = .anxious // tie → higher-arousal default
+            }
+            let hintConfidence = 0.55 + Double(max(anxiousHits, sadHits)) * 0.1
+            return (label, min(1.0, max(hintConfidence, magnitude)))
+        }
+
+        // Positive path with no hints suppressing it
         if valence > Self.valenceThreshold {
             return (.positive, min(1.0, magnitude))
         }
 
-        // Negative band — need to disambiguate anxious vs sad on text alone.
-        // Prosody (if present) provides arousal and will correct this in
-        // the blended signal.
-        //
-        // Guard against false-positive negativity: NLTagger assigns small
-        // negative scores to mundane descriptive text ("I went to the store")
-        // even though nothing emotional is happening. Only commit to a
-        // negative label when we ALSO see a hint word — otherwise stay
-        // neutral so the keyword presence acts as a semantic guardrail.
-        if valence < -Self.valenceThreshold {
-            let lowered = trimmed.lowercased()
-            let words = lowered.components(separatedBy: .alphanumerics.inverted)
-                .filter { !$0.isEmpty }
-            let wordSet = Set(words)
-
-            let anxiousHits = wordSet.intersection(Self.anxiousHints).count
-            let sadHits = wordSet.intersection(Self.sadHints).count
-
-            if anxiousHits > sadHits {
-                return (.anxious, min(1.0, magnitude))
-            }
-            if sadHits > anxiousHits {
-                return (.sad, min(1.0, magnitude))
-            }
-            if anxiousHits > 0 && anxiousHits == sadHits {
-                // Equal hits — pick anxious (higher arousal default for ties).
-                return (.anxious, min(1.0, magnitude))
-            }
-
-            // No hint words at all — likely a false negative from NLTagger
-            // scoring mundane descriptive text. Return neutral with modest
-            // confidence so the prosody path (if present) can still override.
-            return (.neutral, 0.4)
-        }
-
-        // Neutral band — low-confidence neutral.
+        // No hint word present — return neutral regardless of how
+        // negative NLTagger thinks the text is. Apple's sentimentScore
+        // is unreliable on mundane descriptive text (it scores "I went
+        // to the store" around -0.3) and without an explicit emotion
+        // word we can't disambiguate anxious vs sad anyway. The prosody
+        // path (when audio is present) will still catch real signals.
         return (.neutral, 0.4)
     }
 
