@@ -373,6 +373,9 @@ public struct Gemma4VisionConfiguration: Codable, Sendable {
 
 public struct Gemma4Configuration: Codable, Sendable {
     public let textConfiguration: Gemma4TextConfiguration
+    /// Optional for text-only variants (unsloth) that omit vision_config.
+    /// When nil, a dummy default is used so downstream modules compile
+    /// but the vision tower receives no weights and is never invoked.
     public let visionConfiguration: Gemma4VisionConfiguration
     public let modelType: String
     public let quantization: BaseConfiguration.Quantization?
@@ -411,8 +414,19 @@ public struct Gemma4Configuration: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         textConfiguration = try c.decode(
             Gemma4TextConfiguration.self, forKey: CodingKeys.textConfiguration)
-        visionConfiguration = try c.decode(
-            Gemma4VisionConfiguration.self, forKey: CodingKeys.visionConfiguration)
+        // Text-only variants (unsloth) omit vision_config entirely.
+        // Decode as optional; when absent, use a dummy constructed from
+        // an empty JSON object (all fields have decodeIfPresent defaults).
+        if let vc = try c.decodeIfPresent(
+            Gemma4VisionConfiguration.self, forKey: CodingKeys.visionConfiguration
+        ) {
+            visionConfiguration = vc
+        } else {
+            visionConfiguration = try JSONDecoder().decode(
+                Gemma4VisionConfiguration.self,
+                from: "{}".data(using: .utf8)!
+            )
+        }
         modelType = try c.decodeIfPresent(String.self, forKey: CodingKeys.modelType) ?? "gemma4"
         quantization = try c.decodeIfPresent(
             BaseConfiguration.Quantization.self, forKey: CodingKeys.quantization)
