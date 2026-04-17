@@ -616,6 +616,120 @@ struct SafetyAgentTests {
         }
     }
 
+    // MARK: - JSON Keyword Loading (REC-309)
+
+    /// Verify that SafetyAgent loads its risk keyword lists from
+    /// `Resources/Prompts/safety_keywords.json` rather than a hardcoded
+    /// Swift array. These assertions ensure the bundle resource is present
+    /// and decoded into the expected schema.
+    @Suite("JSON Keyword Loading")
+    struct JSONKeywordLoading {
+
+        @Test("Loads suicide keywords from JSON bundle")
+        func testSuicideKeywordsFromJSON() throws {
+            let loaded = try Self.loadBundleKeywords()
+            let suicideJSON = try #require(loaded["suicide"])
+            #expect(!suicideJSON.isEmpty)
+            #expect(SafetyAgent.crisisKeywords["suicide"] == suicideJSON)
+            // Spot-check a known keyword
+            #expect(suicideJSON.contains("kill myself"))
+        }
+
+        @Test("Loads self_harm keywords from JSON bundle")
+        func testSelfHarmKeywordsFromJSON() throws {
+            let loaded = try Self.loadBundleKeywords()
+            let selfHarmJSON = try #require(loaded["self_harm"])
+            #expect(!selfHarmJSON.isEmpty)
+            #expect(SafetyAgent.crisisKeywords["self_harm"] == selfHarmJSON)
+            #expect(selfHarmJSON.contains("cut myself"))
+        }
+
+        @Test("Loads crisis keywords from JSON bundle")
+        func testCrisisKeywordsFromJSON() throws {
+            let loaded = try Self.loadBundleKeywords()
+            let crisisJSON = try #require(loaded["crisis"])
+            #expect(!crisisJSON.isEmpty)
+            #expect(SafetyAgent.crisisKeywords["crisis"] == crisisJSON)
+            #expect(crisisJSON.contains("no way out"))
+        }
+
+        @Test("Loads medical keywords from JSON bundle")
+        func testMedicalKeywordsFromJSON() throws {
+            let loaded = try Self.loadBundleKeywords()
+            let medicalJSON = try #require(loaded["medical"])
+            #expect(!medicalJSON.isEmpty)
+            #expect(SafetyAgent.crisisKeywords["medical"] == medicalJSON)
+        }
+
+        @Test("Loads substance_abuse keywords from JSON bundle")
+        func testSubstanceAbuseKeywordsFromJSON() throws {
+            let loaded = try Self.loadBundleKeywords()
+            let substanceJSON = try #require(loaded["substance_abuse"])
+            #expect(!substanceJSON.isEmpty)
+            #expect(SafetyAgent.substanceAbuseKeywords == substanceJSON)
+            #expect(substanceJSON.contains("overdose"))
+        }
+
+        @Test("Loads abuse keywords from JSON bundle")
+        func testAbuseKeywordsFromJSON() throws {
+            let loaded = try Self.loadBundleKeywords()
+            let abuseJSON = try #require(loaded["abuse"])
+            #expect(!abuseJSON.isEmpty)
+            #expect(SafetyAgent.abuseKeywords == abuseJSON)
+            #expect(abuseJSON.contains("domestic violence"))
+        }
+
+        @Test("Detects a keyword that exists only in the JSON file")
+        func testDetectionUsesJSONContent() throws {
+            // Pick one keyword from each category as loaded from disk and
+            // assert SafetyAgent blocks text containing it. This guards
+            // against regressions where Swift statics drift from the JSON.
+            let loaded = try Self.loadBundleKeywords()
+            let agent = SafetyAgent()
+
+            if let keyword = loaded["suicide"]?.first {
+                let result = agent.gate("Sentence containing \(keyword) for testing")
+                #expect(result == .block(reason: "safety_block_suicide"))
+            }
+            if let keyword = loaded["self_harm"]?.first {
+                let result = agent.gate("A note that includes \(keyword) here")
+                #expect(result == .block(reason: "safety_block_self_harm"))
+            }
+            if let keyword = loaded["crisis"]?.first {
+                let result = agent.gate("Today feels like \(keyword) honestly")
+                #expect(result == .block(reason: "safety_block_crisis"))
+            }
+            if let keyword = loaded["substance_abuse"]?.first {
+                let result = agent.gate("I worry about \(keyword) lately")
+                #expect(result == .block(reason: "safety_block_substance_abuse"))
+            }
+            if let keyword = loaded["abuse"]?.first {
+                let result = agent.gate("Context: \(keyword) is happening")
+                #expect(result == .block(reason: "safety_block_abuse"))
+            }
+        }
+
+        /// Load the JSON file the same way SafetyAgent does (via `Bundle.main`
+        /// inside the test host). Mirrors `SafetyAgent.KeywordStore.loadKeywords`.
+        static func loadBundleKeywords() throws -> [String: [String]] {
+            // The test bundle embeds the app target's resources. Prefer
+            // `Bundle.main` (app bundle at runtime) and fall back to the test
+            // bundle when running with a test host.
+            let candidates: [Bundle] = [.main] + Bundle.allBundles
+            for bundle in candidates {
+                if let url = bundle.url(
+                    forResource: "safety_keywords",
+                    withExtension: "json"
+                ) {
+                    let data = try Data(contentsOf: url)
+                    return try JSONDecoder().decode([String: [String]].self, from: data)
+                }
+            }
+            Issue.record("safety_keywords.json not found in any loaded bundle")
+            return [:]
+        }
+    }
+
     // MARK: - Edge Cases
 
     @Suite("Edge Cases")

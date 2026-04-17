@@ -17,6 +17,10 @@ import os
 ///
 /// The SafetyAgent is **non-overridable**: no other agent (including
 /// LearningLoopAgent or personalization) may bypass a `.block` decision.
+///
+/// Crisis keywords are loaded from `Resources/Prompts/safety_keywords.json`
+/// at first access (see `KeywordStore`). Structural filters (false positives,
+/// medical boundary phrases) remain hardcoded.
 struct SafetyAgent: AgentProtocol, Sendable {
 
     private static let logger = Logger(
@@ -36,55 +40,70 @@ struct SafetyAgent: AgentProtocol, Sendable {
         gate(input)
     }
 
-    // MARK: - Crisis Keywords (embedded for v1)
+    // MARK: - Keyword Store (JSON-backed)
 
-    /// Crisis keyword categories keyed by risk type
-    static let crisisKeywords: [String: [String]] = [
-        "suicide": [
-            "kill myself",
-            "end it all",
-            "ending it all",
-            "not worth living",
-            "suicide",
-            "suicidal",
-            "want to die",
-            "better off dead",
-        ],
-        "self_harm": [
-            "cut myself",
-            "hurt myself",
-            "self-harm",
-            "self harm",
-            "burn myself",
-            "starve myself",
-        ],
-        "crisis": [
-            "can't go on",
-            "no way out",
-            "no reason to live",
-            "give up",
-            "can't take it anymore",
-        ],
-    ]
+    /// Lazy-loaded crisis keywords from `safety_keywords.json`.
+    ///
+    /// Single source of truth for crisis/self-harm/suicide/medical/substance/abuse
+    /// keyword lists. On any load failure (missing resource, malformed JSON), this
+    /// resolves to an empty dictionary and emits an error log. There is **no
+    /// hardcoded fallback by design** — the JSON is authoritative.
+    private enum KeywordStore {
+        static let all: [String: [String]] = loadKeywords()
 
-    /// Substance abuse keywords that require context-aware matching
-    static let substanceAbuseKeywords: [String] = [
-        "can't stop drinking",
-        "overdose",
-        "need to get high",
-        "withdrawal symptoms",
-        "addicted to",
-    ]
+        private static func loadKeywords() -> [String: [String]] {
+            guard let url = Bundle.main.url(
+                forResource: "safety_keywords",
+                withExtension: "json"
+            ) else {
+                SafetyAgent.logger.error(
+                    "safety_keywords.json not found in app bundle — risk lists will be empty"
+                )
+                return [:]
+            }
 
-    /// Abuse keywords that trigger DV-specific crisis resources
-    static let abuseKeywords: [String] = [
-        "he hits me",
-        "she hits me",
-        "afraid to go home",
-        "being abused",
-        "hurting me",
-        "domestic violence",
-    ]
+            do {
+                let data = try Data(contentsOf: url)
+                let parsed = try JSONDecoder().decode([String: [String]].self, from: data)
+                return parsed
+            } catch {
+                SafetyAgent.logger.error(
+                    "Failed to decode safety_keywords.json: \(error.localizedDescription, privacy: .public)"
+                )
+                return [:]
+            }
+        }
+    }
+
+    // MARK: - Crisis Keywords (JSON-backed)
+
+    /// Crisis keyword categories keyed by risk type.
+    /// Populated from `safety_keywords.json` — keys: suicide, self_harm, crisis, medical.
+    static var crisisKeywords: [String: [String]] {
+        var dict: [String: [String]] = [:]
+        for key in ["suicide", "self_harm", "crisis", "medical"] {
+            dict[key] = KeywordStore.all[key] ?? []
+        }
+        return dict
+    }
+
+    /// Substance abuse keywords that require context-aware matching.
+    /// Sourced from `safety_keywords.json` under key `substance_abuse`.
+    static var substanceAbuseKeywords: [String] {
+        KeywordStore.all["substance_abuse"] ?? []
+    }
+
+    /// Abuse keywords that trigger DV-specific crisis resources.
+    /// Sourced from `safety_keywords.json` under key `abuse`.
+    static var abuseKeywords: [String] {
+        KeywordStore.all["abuse"] ?? []
+    }
+
+    // MARK: - Structural Filters (hardcoded)
+    //
+    // These lists are not configurable crisis keywords — they encode structural
+    // logic (false positives + medical boundary phrasing). They are intentionally
+    // kept in Swift source rather than moved to JSON.
 
     /// Phrases that look like crisis keywords but are benign (false positives).
     /// Checked before crisis keyword matching to prevent incorrect blocks.
@@ -139,7 +158,9 @@ struct SafetyAgent: AgentProtocol, Sendable {
 
     // MARK: - Medical Boundary Patterns
 
-    /// Phrases indicating the response attempts to diagnose or prescribe
+    /// Phrases indicating the response attempts to diagnose or prescribe.
+    /// Kept hardcoded — structural logic, not a configurable keyword list.
+    /// JSON's `medical` entries are merged at runtime (see `checkMedicalBoundary`).
     static let medicalBoundaryPhrases: [String] = [
         "you have depression",
         "you have anxiety",
@@ -337,7 +358,13 @@ struct SafetyAgent: AgentProtocol, Sendable {
         return nil
     }
 
-    /// Check for crisis keywords, accounting for false positives
+    /// Check for crisis keywords, accounting for false positives.
+    ///
+    /// Iterates over the suicide / self_harm / crisis categories from the
+    /// JSON-backed `crisisKeywords`. The `medical` category is intentionally
+    /// routed through `checkMedicalBoundary` (step 5 of `gate`) so that
+    /// diagnosis-style text yields the `medical_boundary` reason rather than
+    /// a generic crisis block.
     private func checkCrisisKeywords(_ lowered: String) -> String? {
         // Build a "sanitized" version where false-positive phrases are masked out
         var sanitized = lowered
@@ -348,9 +375,12 @@ struct SafetyAgent: AgentProtocol, Sendable {
             )
         }
 
-        for (category, keywords) in Self.crisisKeywords {
+        let crisisCategories = ["suicide", "self_harm", "crisis"]
+        let keywordMap = Self.crisisKeywords
+        for category in crisisCategories {
+            guard let keywords = keywordMap[category] else { continue }
             for keyword in keywords {
-                if sanitized.contains(keyword) {
+                if sanitized.contains(keyword.lowercased()) {
                     return "safety_block_\(category)"
                 }
             }
@@ -370,7 +400,7 @@ struct SafetyAgent: AgentProtocol, Sendable {
         }
 
         for keyword in Self.abuseKeywords {
-            if sanitized.contains(keyword) {
+            if sanitized.contains(keyword.lowercased()) {
                 return "safety_block_abuse"
             }
         }
@@ -393,7 +423,7 @@ struct SafetyAgent: AgentProtocol, Sendable {
         }
 
         for keyword in Self.substanceAbuseKeywords {
-            if sanitized.contains(keyword) {
+            if sanitized.contains(keyword.lowercased()) {
                 return "safety_block_substance_abuse"
             }
         }
@@ -401,7 +431,11 @@ struct SafetyAgent: AgentProtocol, Sendable {
         return nil
     }
 
-    /// Check for medical boundary violations
+    /// Check for medical boundary violations.
+    ///
+    /// Combines the hardcoded `medicalBoundaryPhrases` (structural patterns) with
+    /// any `medical` entries declared in `safety_keywords.json` so the JSON can
+    /// extend the list without code changes.
     private func checkMedicalBoundary(_ lowered: String) -> String? {
         // Mask out false-positive medical phrases before checking
         var sanitized = lowered
@@ -412,7 +446,16 @@ struct SafetyAgent: AgentProtocol, Sendable {
             )
         }
 
-        for phrase in Self.medicalBoundaryPhrases {
+        // Union of hardcoded boundary phrases + JSON medical entries.
+        // Using a Set keeps duplicates out while preserving lowercase comparison.
+        var phrases = Set(Self.medicalBoundaryPhrases)
+        if let jsonMedical = Self.crisisKeywords["medical"] {
+            for phrase in jsonMedical {
+                phrases.insert(phrase.lowercased())
+            }
+        }
+
+        for phrase in phrases {
             if sanitized.contains(phrase) {
                 return "medical_boundary"
             }
