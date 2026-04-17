@@ -40,7 +40,14 @@ struct EmotionAgent: AgentProtocol, Sendable {
         "racing", "frantic", "restless", "uneasy", "jittery",
         // noun forms — critical for "i have anxiety" to classify correctly
         "anxiety", "worry", "fear", "stress", "dread", "panic",
-        "tension", "pressure", "nerves", "overwhelm"
+        "tension", "pressure", "nerves", "overwhelm",
+        // anger/frustration — high-arousal negative, same valence-arousal
+        // quadrant as anxiety. "I'm mad and frustrated" should NOT tag
+        // as sad (low arousal). Anger prosody (loud, fast, high pitch
+        // variance) also matches the anxious prosody rules.
+        "mad", "frustrated", "angry", "furious", "irritated", "annoyed",
+        "resentful", "hostile", "outraged", "livid", "enraged",
+        "anger", "frustration", "irritation", "resentment", "fury", "rage",
     ]
 
     private static let sadHints: Set<String> = [
