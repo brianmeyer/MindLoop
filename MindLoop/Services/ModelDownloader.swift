@@ -77,23 +77,23 @@ final class ModelDownloader: NSObject {
     /// Identifier for the background URLSession. Must be stable across app launches.
     nonisolated static let sessionIdentifier = "com.lycan.MindLoop.modelDownload"
 
-    /// PLE-safe Gemma 4 E2B weights from Unsloth. The mlx-community
-    /// variant has a quantization bug (PLE layers quantized, producing
-    /// garbage output). Unsloth's UD variant preserves PLE layers in
-    /// full precision. See mlx-vlm PR #893. (REC-305)
-    nonisolated static let repoBase = "https://huggingface.co/unsloth/gemma-4-E2B-it-UD-MLX-4bit/resolve/main/"
+    /// PLE-safe Gemma 4 E2B weights from OsaurusAI. The mlx-community
+    /// 4-bit variant has a confirmed PLE quantization bug that causes
+    /// immediate EOS output (0 generated chunks). OsaurusAI's variant
+    /// uses the fix from mlx-vlm PR #901 — PLE layers preserved at
+    /// higher precision. Includes vision_tower + vision_config so the
+    /// text model's sanitize() can strip them cleanly. Single shard.
+    nonisolated static let repoBase = "https://huggingface.co/OsaurusAI/gemma-4-E2B-it-4bit/resolve/main/"
 
     /// Files to download in order (small files first, .safetensors last).
-    /// Note: unsloth variant does NOT include processor_config.json
-    /// (the mlx-community variant did). Removed from required list.
     nonisolated static let requiredFiles: [(name: String, sizeBytes: Int64)] = [
         ("config.json", 6_000),
         ("tokenizer.json", 33_000_000),
         ("tokenizer_config.json", 50_000),
         ("generation_config.json", 1_000),
         ("chat_template.jinja", 5_000),
-        ("model.safetensors.index.json", 2_000),
-        ("model.safetensors", 3_600_000_000),
+        ("model.safetensors.index.json", 30_000),
+        ("model.safetensors", 4_360_000_000),
     ]
 
     /// Total estimated download size in bytes.

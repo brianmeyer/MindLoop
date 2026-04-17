@@ -15,7 +15,6 @@ import MLX
 import MLXLLM
 import MLXLMCommon
 import MLXEmbedders
-import MLXVLM
 @preconcurrency import Tokenizers
 #endif
 
@@ -137,28 +136,31 @@ final class ModelRuntime {
                 throw ModelError.modelFilesIncomplete(missing: missing)
             }
 
+            print("[MindLoop] Loading Gemma 4 E2B-it from \(modelURL.path)")
             Self.logger.info("Loading Gemma 4 E2B-it from \(modelURL.path)")
 
             // Set GPU cache limit (20MB) — updated API per mlx-swift docs.
             MLX.Memory.cacheLimit = 20 * 1024 * 1024
 
-            // Register the vendored Gemma4 VLM model type BEFORE loading.
-            // Gemma 4's config.json has model_type "gemma4" which upstream
-            // mlx-swift-lm doesn't support yet. The vendored files from
-            // eduardogoncalves/mlx-coder register it with VLMTypeRegistry
-            // so loadModelContainer routes through the VLM factory.
-            await Gemma4Registration.shared.register()
+            // Register "gemma4" and "gemma4_text" model types with
+            // LLMTypeRegistry. Uses gemma4-ios's text-only implementation
+            // (single file, standard MLXLLM types). The sanitize() method
+            // strips vision_tower/audio_tower keys from the weights so
+            // mlx-community's multimodal weights load cleanly as text-only.
+            await LLMTypeRegistry.shared.registerModelType("gemma4") { data in
+                let config = try JSONDecoder().decode(Gemma4TextConfiguration.self, from: data)
+                return Gemma4TextModel(config)
+            }
+            await LLMTypeRegistry.shared.registerModelType("gemma4_text") { data in
+                let config = try JSONDecoder().decode(Gemma4TextConfiguration.self, from: data)
+                return Gemma4TextModel(config)
+            }
 
             let startTime = Date()
 
-            // Load model container via VLMModelFactory directly. The
-            // MLXLMCommon.loadModelContainer trampoline SHOULD route to
-            // VLM, but on-device testing (v13, v14) showed it only tries
-            // LLMModelFactory → unsupportedModelType("gemma4"). Using
-            // VLMModelFactory.shared.loadContainer(from:using:) bypasses
-            // the trampoline and goes straight to the VLM factory where
-            // our registered "gemma4" type IS found.
-            let container = try await VLMModelFactory.shared.loadContainer(
+            // Load via LLMModelFactory — the text-only path. Gemma4 is
+            // registered in LLMTypeRegistry so the factory finds it.
+            let container = try await LLMModelFactory.shared.loadContainer(
                 from: modelURL,
                 using: HuggingFaceTokenizerLoader()
             )
@@ -170,13 +172,13 @@ final class ModelRuntime {
             // Update memory usage
             updateMemoryUsage()
 
+            print("[MindLoop] LLM loaded in \(String(format: "%.2f", loadTime))s")
             Self.logger.info("LLM loaded in \(String(format: "%.2f", loadTime))s, memory: \(self.memoryUsageMB)MB")
         } catch {
-            // Capture the error so MindLoopApp can show a meaningful retry
-            // prompt instead of silently dismissing the loading overlay.
             let errorType = String(describing: type(of: error))
-            let desc = String(describing: error).prefix(100)
+            let desc = String(describing: error).prefix(200)
             lastLoadError = "\(errorType): \(desc)"
+            print("[MindLoop] LLM LOAD FAILED: \(errorType): \(desc)")
             Self.logger.error(
                 "LLM load failed (\(errorType, privacy: .public)): \(error.localizedDescription, privacy: .public)"
             )
@@ -304,9 +306,15 @@ final class ModelRuntime {
                     // capturing `continuation` in the `@Sendable` perform
                     // closure is safe.
                     try await container.perform { context in
-                        let preparedInput = try await context.processor.prepare(
-                            input: UserInput(prompt: prompt)
-                        )
+                        // Bypass the Jinja chat template — Gemma 4's 262-line
+                        // template uses macros/namespace/dictsort that
+                        // swift-transformers' parser can't handle. Instead,
+                        // format with Gemma turn tokens directly and tokenize.
+                        let formatted = "<start_of_turn>user\n\(prompt)<end_of_turn>\n<start_of_turn>model\n"
+                        let tokens = context.tokenizer.encode(text: formatted)
+                        print("[MindLoop] Prompt tokens: \(tokens.count)")
+                        let tokenArray = MLXArray(tokens.map { Int32($0) }).reshaped(1, tokens.count)
+                        let preparedInput = LMInput(text: .init(tokens: tokenArray))
 
                         let stream = try MLXLMCommon.generate(
                             input: preparedInput,
