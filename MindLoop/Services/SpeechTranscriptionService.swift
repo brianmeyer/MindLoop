@@ -188,7 +188,23 @@ final class SpeechTranscriptionService {
 
         // Configure audio engine input (session is already active)
         let inputNode = audioEngine.inputNode
+
+        // Remove any leftover tap to prevent "tap already installed" crash
+        inputNode.removeTap(onBus: 0)
+
+        // Validate the hardware format — a 0-channel or 0-sampleRate format
+        // means the audio session hasn't fully activated yet.
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            let error = SpeechTranscriptionError.audioEngineFailure(
+                NSError(domain: "SpeechTranscriptionService",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Audio input format invalid (sampleRate=\(recordingFormat.sampleRate), channels=\(recordingFormat.channelCount)). Microphone may be unavailable."])
+            )
+            lastError = error
+            logger.error("Invalid recording format: \(recordingFormat)")
+            throw error
+        }
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self, weak request] buffer, _ in
             request?.append(buffer)
