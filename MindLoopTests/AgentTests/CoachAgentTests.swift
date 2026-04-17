@@ -519,3 +519,163 @@ struct AgentPropertyTests {
         #expect(agent.name == "CoachAgent")
     }
 }
+
+// MARK: - Prompt Snapshot Fixtures
+
+/// Sentinel class used only to resolve the test xctest bundle for loading fixtures.
+private final class PromptFixtureBundleToken {}
+
+/// Load a fixture file from the test bundle's `Fixtures/prompts/` directory.
+///
+/// Files are added to the test bundle automatically via the filesystem-synchronized
+/// `MindLoopTests` group in the Xcode project. Strips a single POSIX trailing newline
+/// so fixtures remain editor-friendly while matching the in-memory prompt (which has no
+/// trailing newline, mirroring the original inline string literal).
+private func loadPromptFixture(_ name: String) throws -> String {
+    let bundle = Bundle(for: PromptFixtureBundleToken.self)
+    guard let url = bundle.url(forResource: name, withExtension: "txt") else {
+        throw FixtureLoadError.notFound(name)
+    }
+    let raw = try String(contentsOf: url, encoding: .utf8)
+    if raw.hasSuffix("\n") {
+        return String(raw.dropLast())
+    }
+    return raw
+}
+
+private enum FixtureLoadError: Error, CustomStringConvertible {
+    case notFound(String)
+
+    var description: String {
+        switch self {
+        case .notFound(let name):
+            return "Fixture not found in test bundle: \(name).txt"
+        }
+    }
+}
+
+/// Canonical anxious fixture input (pinned for prompt snapshot regression testing).
+private func makeAnxiousFixtureInput() -> CoachAgent.Input {
+    let text = "I'm so worried about the presentation tomorrow. I can't stop my mind from racing."
+    let emotion = EmotionSignal(
+        label: .anxious,
+        confidence: 0.85,
+        valence: -0.5,
+        arousal: 0.7
+    )
+    let entry = JournalEntry(
+        id: "fixture-anxious",
+        timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+        text: text,
+        emotion: emotion,
+        tags: ["work", "presentation"]
+    )
+    return CoachAgent.Input(
+        entry: entry,
+        emotion: emotion,
+        context: .empty,
+        profile: .default,
+        currentState: .thoughts
+    )
+}
+
+/// Canonical neutral fixture input.
+private func makeNeutralFixtureInput() -> CoachAgent.Input {
+    let text = "Today was an ordinary day. Nothing particularly stood out to me."
+    let emotion = EmotionSignal(
+        label: .neutral,
+        confidence: 0.75,
+        valence: 0.0,
+        arousal: 0.3
+    )
+    let entry = JournalEntry(
+        id: "fixture-neutral",
+        timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+        text: text,
+        emotion: emotion,
+        tags: ["daily"]
+    )
+    return CoachAgent.Input(
+        entry: entry,
+        emotion: emotion,
+        context: .empty,
+        profile: .default,
+        currentState: .situation
+    )
+}
+
+/// Canonical positive fixture input.
+private func makePositiveFixtureInput() -> CoachAgent.Input {
+    let text = "I finished the project I was nervous about and it went really well. I feel proud."
+    let emotion = EmotionSignal(
+        label: .positive,
+        confidence: 0.90,
+        valence: 0.6,
+        arousal: 0.5
+    )
+    let entry = JournalEntry(
+        id: "fixture-positive",
+        timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+        text: text,
+        emotion: emotion,
+        tags: ["work", "accomplishment"]
+    )
+    return CoachAgent.Input(
+        entry: entry,
+        emotion: emotion,
+        context: .empty,
+        profile: .default,
+        currentState: .reflect
+    )
+}
+
+/// Snapshot tests that pin the externalized v1 prompt output against accidental regressions.
+///
+/// These guard against:
+/// 1. Silent edits to `Resources/Prompts/coach_system.txt` / `coach_system_v1.txt`
+/// 2. Drift in downstream formatters (`formatEmotion`, `formatContext`, `formatState`,
+///    `PersonalizationProfile.promptInstructions`)
+///
+/// If these tests fail after an intentional prompt change, regenerate the fixtures under
+/// `MindLoopTests/Fixtures/prompts/` alongside a new versioned `coach_system_vN.txt`.
+@Suite("Prompt Snapshot Fixtures")
+struct PromptSnapshotTests {
+
+    @Test("Anxious fixture matches snapshot")
+    func testAnxiousSnapshot() throws {
+        let agent = CoachAgent()
+        let prompt = agent.buildPrompt(input: makeAnxiousFixtureInput())
+        let expected = try loadPromptFixture("coach_v1_anxious")
+        #expect(prompt == expected)
+    }
+
+    @Test("Neutral fixture matches snapshot")
+    func testNeutralSnapshot() throws {
+        let agent = CoachAgent()
+        let prompt = agent.buildPrompt(input: makeNeutralFixtureInput())
+        let expected = try loadPromptFixture("coach_v1_neutral")
+        #expect(prompt == expected)
+    }
+
+    @Test("Positive fixture matches snapshot")
+    func testPositiveSnapshot() throws {
+        let agent = CoachAgent()
+        let prompt = agent.buildPrompt(input: makePositiveFixtureInput())
+        let expected = try loadPromptFixture("coach_v1_positive")
+        #expect(prompt == expected)
+    }
+
+    @Test("Bundled prompt template loads from Resources/Prompts/coach_system.txt")
+    func testPromptLoadedFromBundle() {
+        // Verify the externalized prompt file is present in the app bundle
+        // and was loaded into systemPromptTemplate (not the inline fallback).
+        let template = CoachAgent.systemPromptTemplate
+        #expect(template.contains("{ENTRY}"))
+        #expect(template.contains("{EMOTION}"))
+        #expect(template.contains("{CONTEXT}"))
+        #expect(template.contains("{STATE}"))
+        #expect(template.contains("{PERSONALIZATION}"))
+        // The canonical v1 prompt includes this rule line; the minimal fallback does not.
+        #expect(template.contains("Cite retrieved memories when relevant"))
+    }
+}

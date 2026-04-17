@@ -122,21 +122,23 @@ struct CoachAgent: AgentProtocol, Sendable {
 
     // MARK: - System Prompt Template
 
-    /// The system prompt template with CBT micro-flow guidance.
+    /// Resource name for the active Coach system prompt (alias file).
     ///
-    /// Placeholders: {ENTRY}, {EMOTION}, {CONTEXT}, {STATE}, {PERSONALIZATION}
-    static let systemPromptTemplate: String = """
-        You are a warm, supportive CBT coach in a journaling app. You guide users \
-        through reflections using the CBT micro-flow: goal, situation, thoughts/feelings, \
-        distortions, reframe, tiny action, reflect.
+    /// Per CLAUDE.md prompt governance, `coach_system.txt` is the current-version alias
+    /// that points at the latest versioned prompt (currently `coach_system_v1.txt`).
+    /// Versioned files live alongside this alias in `Resources/Prompts/`.
+    private static let promptResourceName = "coach_system"
+    private static let promptResourceExtension = "txt"
 
-        RULES:
-        - Be warm, concise, and non-clinical. No diagnoses or medical claims.
-        - Respond in ~80-120 tokens.
-        - Cite retrieved memories when relevant (e.g., "Last Tuesday you mentioned...").
-        - Suggest one concrete tiny action per turn.
-        - Follow the current CBT state guidance below.
-        - Adapt your tone and pacing to the user's preferences.
+    /// Minimal inline fallback used only if the bundled prompt cannot be loaded.
+    ///
+    /// This should never trigger in production (the file ships in the app bundle),
+    /// but guards against a catastrophic bundle load failure so the agent can still
+    /// build a well-formed prompt with all placeholders filled.
+    private static let fallbackPromptTemplate: String = """
+        You are a warm, supportive CBT coach. Follow the CBT micro-flow \
+        (goal, situation, thoughts/feelings, distortions, reframe, tiny action, reflect). \
+        Be warm, concise, and non-clinical. Respond in ~80-120 tokens and suggest one tiny action.
 
         CURRENT CBT STATE: {STATE}
 
@@ -154,6 +156,30 @@ struct CoachAgent: AgentProtocol, Sendable {
 
         Respond as the coach. Stay in character. Be brief and actionable.
         """
+
+    /// The system prompt template with CBT micro-flow guidance, loaded once from the app bundle.
+    ///
+    /// Swift initializes `static let` properties lazily and thread-safely, so the bundled
+    /// resource is read from disk at most once per process. Subsequent ``buildPrompt(input:)``
+    /// calls reuse the cached string.
+    ///
+    /// Placeholders: `{ENTRY}`, `{EMOTION}`, `{CONTEXT}`, `{STATE}`, `{PERSONALIZATION}`
+    static let systemPromptTemplate: String = {
+        if let url = Bundle.main.url(
+            forResource: promptResourceName,
+            withExtension: promptResourceExtension
+        ),
+           let contents = try? String(contentsOf: url, encoding: .utf8) {
+            // Strip a single trailing newline so the loaded template matches the
+            // semantics of the previous inline string literal (which had no final newline).
+            // Many editors add a POSIX-style trailing newline when saving text files.
+            if contents.hasSuffix("\n") {
+                return String(contents.dropLast())
+            }
+            return contents
+        }
+        return fallbackPromptTemplate
+    }()
 
     // MARK: - Response Building
 
