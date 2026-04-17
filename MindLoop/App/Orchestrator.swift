@@ -142,8 +142,9 @@ final class Orchestrator {
             // 6. Get personalization profile
             let profile = try database.fetchProfile().toDomain()
 
-            // 7. Generate coach response with timeout + retry per CLAUDE.md
-            // (3.0s timeout, 1x retry at 1.5s backoff). (REC-306)
+            // 7. Stream coach response tokens into streamingText with
+            // timeout + retry per CLAUDE.md. UI reveals via typewriter.
+            // (REC-316 token-by-token streaming; REC-306 timeout).
             pipelineState = .responding
             let coachInput = CoachAgent.Input(
                 entry: entry,
@@ -152,19 +153,21 @@ final class Orchestrator {
                 profile: profile,
                 currentState: cbtState
             )
-            let response: CoachResponse = try await withCoachTimeout(input: coachInput)
+            let response: CoachResponse = try await streamCoachWithTimeout(input: coachInput)
 
-            // 8. Safety gate
+            // 8. Safety gate (post-stream). If blocked, retract the
+            // streamed text so the user no longer sees the unsafe
+            // content and present de-escalation instead.
             let gateResult = safetyAgent.gate(response.text)
 
             if gateResult.isBlocked {
+                streamingText = ""
                 pipelineState = .blocked
                 isBlocked = true
                 deescalationMessage = SafetyAgent.deescalationResponse
                 currentResponse = nil
             } else {
                 currentResponse = response
-                streamingText = response.text
                 cbtState = response.nextState
                 pipelineState = .idle
             }
@@ -194,31 +197,68 @@ final class Orchestrator {
         }
     }
 
-    // MARK: - Coach Timeout (REC-306)
+    // MARK: - Coach Streaming (REC-316) + Timeout (REC-306)
 
-    /// Call CoachAgent with a 3.0s timeout and 1x retry at 1.5s backoff,
-    /// per CLAUDE.md failure/timeout policy. If both attempts fail or
-    /// time out, throws `ModelRuntime.ModelError.timeout`.
-    private func withCoachTimeout(input: CoachAgent.Input) async throws -> CoachResponse {
-        // First attempt — 60s. Gemma 4 E2B on iPhone takes 10-20s for
-        // first-token latency (3.3GB model prompt processing) plus
-        // ~10s for 120 tokens at 12 tok/s. Total ~30s typical.
-        let attempt1 = try? await withTimeout(seconds: 60.0) {
-            try await self.coachAgent.process(input)
+    /// Stream CoachAgent tokens into `streamingText` with a 60s overall
+    /// timeout and 1x retry at 2s backoff, per CLAUDE.md failure/timeout
+    /// policy. Returns the finalized `CoachResponse` built from the
+    /// accumulated stream text.
+    ///
+    /// On iPhone, Gemma 4 E2B first-token latency is ~10–20s (3.3GB
+    /// prompt processing) plus ~10s for 120 tokens at ~12 tok/s — so
+    /// 60s covers typical ~30s generations with headroom for cold runs.
+    private func streamCoachWithTimeout(input: CoachAgent.Input) async throws -> CoachResponse {
+        streamingText = ""
+
+        if let result = await withTimeout(seconds: 60.0, operation: {
+            await self.accumulateStream(input: input)
+        }), !result.text.isEmpty {
+            return coachAgent.buildCoachResponse(
+                text: result.text,
+                input: input,
+                latencyMs: result.latencyMs
+            )
         }
-        if let result = attempt1 { return result }
 
-        Self.logger.warning("Coach generation timed out — retrying after 2s backoff")
+        Self.logger.warning("Coach stream timed out or empty — retrying after 2s backoff")
+        streamingText = ""
         try await Task.sleep(for: .seconds(2.0))
 
-        // Retry — 60s
-        let attempt2 = try? await withTimeout(seconds: 60.0) {
-            try await self.coachAgent.process(input)
+        if let retry = await withTimeout(seconds: 60.0, operation: {
+            await self.accumulateStream(input: input)
+        }), !retry.text.isEmpty {
+            return coachAgent.buildCoachResponse(
+                text: retry.text,
+                input: input,
+                latencyMs: retry.latencyMs
+            )
         }
-        if let result = attempt2 { return result }
 
-        Self.logger.error("Coach generation timed out on retry")
-        throw ModelRuntime.ModelError.timeout
+        Self.logger.error("Coach stream timed out or empty on retry")
+        throw AgentError.processingFailed(
+            agent: "CoachAgent",
+            reason: "Model returned empty response"
+        )
+    }
+
+    /// Consume the CoachAgent token stream, appending each token to
+    /// `streamingText` for live typewriter reveal. Returns the trimmed
+    /// full text plus the measured generation latency.
+    private func accumulateStream(
+        input: CoachAgent.Input
+    ) async -> (text: String, latencyMs: Int) {
+        let start = Date()
+        var full = ""
+        for await token in coachAgent.streamResponse(input: input) {
+            full += token
+            streamingText = full
+        }
+        let latencyMs = Int(Date().timeIntervalSince(start) * 1000)
+        let trimmed = full.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Reflect the trimmed text back to the UI so downstream state
+        // matches what buildCoachResponse will see.
+        streamingText = trimmed
+        return (trimmed, latencyMs)
     }
 
     /// Run an async operation with a timeout. Returns nil if the timeout
