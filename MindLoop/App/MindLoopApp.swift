@@ -276,28 +276,7 @@ private struct ModelLoadingOverlay: View {
     }
 
     private var warmUpContent: some View {
-        VStack(spacing: Spacing.base) {
-            Text("Loading AI Model")
-                .typography(.heading)
-                .foregroundStyle(Color("Foreground"))
-
-            ProgressView(value: warmUpProgress, total: 1.0)
-                .tint(Color("Primary"))
-                .accessibilityLabel("Loading progress")
-                .accessibilityValue("\(Int(warmUpProgress * 100)) percent")
-
-            Text("Preparing model for use...")
-                .typography(.small)
-                .foregroundStyle(Color("MutedForeground"))
-
-            Text("\(Int(warmUpProgress * 100))%")
-                .typography(.subheading)
-                .foregroundStyle(Color("Primary"))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Loading AI model into memory, \(Int(warmUpProgress * 100)) percent complete")
+        WarmUpProgressView()
     }
 
     private func failedContent(message: String) -> some View {
@@ -332,5 +311,86 @@ private struct ModelLoadingOverlay: View {
             .accessibilityLabel("Retry download")
             .accessibilityHint("Attempts to download the AI model again")
         }
+    }
+}
+
+// MARK: - Warm-Up Progress (Indeterminate with Elapsed Time)
+
+/// Replaces the fake "0%" determinate bar with an indeterminate spinner,
+/// elapsed-time counter, and rotating phase labels so the user sees
+/// continuous movement while MLX loads the 3.3GB model from disk.
+///
+/// MLX Swift's `loadContainer(from: URL, using:)` provides NO progress
+/// callback for local loads — only the hub-download variant reports
+/// progress. Showing "0%" for 4+ minutes made the app look frozen.
+private struct WarmUpProgressView: View {
+    @State private var elapsedSeconds: Int = 0
+    @State private var timer: Timer?
+
+    /// Phase labels shown in sequence to indicate forward progress.
+    private static let phases: [(threshold: Int, label: String)] = [
+        (0, "Reading model files..."),
+        (5, "Parsing model configuration..."),
+        (12, "Loading neural network weights..."),
+        (30, "Initializing on-device AI..."),
+        (60, "Almost ready..."),
+    ]
+
+    private var currentPhase: String {
+        Self.phases.last(where: { $0.threshold <= elapsedSeconds })?.label
+            ?? "Preparing model for use..."
+    }
+
+    var body: some View {
+        VStack(spacing: Spacing.base) {
+            Text("Loading AI Model")
+                .typography(.heading)
+                .foregroundStyle(Color("Foreground"))
+
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(Color("Primary"))
+                .scaleEffect(1.3)
+                .padding(.vertical, Spacing.s)
+
+            Text(currentPhase)
+                .typography(.small)
+                .foregroundStyle(Color("MutedForeground"))
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.4), value: currentPhase)
+
+            Text(formattedElapsed)
+                .typography(.subheading)
+                .foregroundStyle(Color("Primary"))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading AI model into memory, \(formattedElapsed) elapsed")
+        .onAppear { startTimer() }
+        .onDisappear { stopTimer() }
+    }
+
+    private var formattedElapsed: String {
+        if elapsedSeconds < 60 {
+            return "\(elapsedSeconds)s"
+        } else {
+            let m = elapsedSeconds / 60
+            let s = elapsedSeconds % 60
+            return "\(m)m \(s)s"
+        }
+    }
+
+    private func startTimer() {
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            Task { @MainActor in
+                elapsedSeconds += 1
+            }
+        }
+    }
+
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
     }
 }

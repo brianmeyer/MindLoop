@@ -200,17 +200,19 @@ final class Orchestrator {
     /// per CLAUDE.md failure/timeout policy. If both attempts fail or
     /// time out, throws `ModelRuntime.ModelError.timeout`.
     private func withCoachTimeout(input: CoachAgent.Input) async throws -> CoachResponse {
-        // First attempt — 3.0s
-        let attempt1 = try? await withTimeout(seconds: 3.0) {
+        // First attempt — 60s. Gemma 4 E2B on iPhone takes 10-20s for
+        // first-token latency (3.3GB model prompt processing) plus
+        // ~10s for 120 tokens at 12 tok/s. Total ~30s typical.
+        let attempt1 = try? await withTimeout(seconds: 60.0) {
             try await self.coachAgent.process(input)
         }
         if let result = attempt1 { return result }
 
-        Self.logger.warning("Coach generation timed out — retrying after 1.5s backoff")
-        try await Task.sleep(for: .seconds(1.5))
+        Self.logger.warning("Coach generation timed out — retrying after 2s backoff")
+        try await Task.sleep(for: .seconds(2.0))
 
-        // Retry — 3.0s
-        let attempt2 = try? await withTimeout(seconds: 3.0) {
+        // Retry — 60s
+        let attempt2 = try? await withTimeout(seconds: 60.0) {
             try await self.coachAgent.process(input)
         }
         if let result = attempt2 { return result }
