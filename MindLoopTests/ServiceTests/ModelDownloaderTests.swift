@@ -14,12 +14,13 @@ import Foundation
 @Suite("ModelDownloader Tests")
 struct ModelDownloaderTests {
 
-    @Test("Initial state is idle")
+    @Test("Initial state is idle or ready (singleton persists across runs)")
     func testInitialState() {
         let downloader = ModelDownloader.shared
-        #expect(downloader.state == .idle)
-        #expect(downloader.progress == 0.0)
-        #expect(downloader.isModelAvailable == false)
+        // Singleton state persists across tests/sim runs — in the simulator,
+        // testSimulatorSkipsDownload may have already moved it to .ready.
+        #expect(downloader.state == .idle || downloader.state == .ready)
+        #expect(downloader.isModelAvailable == (downloader.state == .ready))
     }
 
     @Test("modelDirectoryURL points to Documents/gemma-4-e2b-it-4bit")
@@ -41,9 +42,12 @@ struct ModelDownloaderTests {
     #endif
 
     @Test("Cancel resets state to idle")
-    func testCancelDownload() {
+    func testCancelDownload() async {
         let downloader = ModelDownloader.shared
         downloader.cancelDownload()
+        // cancelDownload() schedules the reset via Task { @MainActor in ... };
+        // yield so the queued task runs before we assert.
+        await Task.yield()
         #expect(downloader.state == .idle)
         #expect(downloader.progress == 0.0)
     }
